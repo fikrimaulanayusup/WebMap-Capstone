@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web-Map Tumpahan Minyak</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css?v=14">
+</head>
+<body>
+  <nav id="nav" aria-label="Menu utama">
+    <header>
+      <h1>Web-Map Tumpahan Minyak</h1>
+      <p class="subtitle">Prototipe · citra satelit akses terbuka</p>
+    </header>
+    <ul class="menu">
+      <li>
+        <button type="button" id="menu-imagery" class="menu-item" aria-expanded="false" aria-controls="panel">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/>
+            <ellipse cx="12" cy="12" rx="4" ry="9"/>
+            <path d="M3 12h18M4.6 7h14.8M4.6 17h14.8"/>
+          </svg>
+          <span>Citra Satelit</span>
+          <svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </li>
+      <li>
+        <button type="button" id="menu-detect" class="menu-item" aria-expanded="false" aria-controls="detect-panel">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M10 3.5l1.6 4.4 4.4 1.6-4.4 1.6L10 15.5l-1.6-4.4L4 9.5l4.4-1.6z"/>
+            <path d="M17.5 13.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>
+          </svg>
+          <span>Deteksi Oil Spill</span>
+          <svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </li>
+    </ul>
+  </nav>
+
+  <aside id="panel" class="side-panel" hidden aria-label="Citra satelit">
+    <div class="sensor-bar">
+      <span id="sensor-chip" class="chip">Sentinel-2</span>
+      <button type="button" id="filter-btn" class="icon-btn" aria-expanded="false" aria-controls="filters"
+              aria-label="Filter citra" title="Filter citra">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 8h9M19 8h1M4 16h1M11 16h9"/>
+          <rect x="13.5" y="5.5" width="5" height="5" rx="1"/>
+          <rect x="5.5" y="13.5" width="5" height="5" rx="1"/>
+        </svg>
+      </button>
+    </div>
+    <p id="filter-summary" class="hint"></p>
+
+    <form id="filters" class="card" hidden>
+      <fieldset class="segmented">
+        <legend>Sensor</legend>
+        <label><input type="radio" name="sensor" value="sentinel-2" checked><span>Sentinel-2<small>optik</small></span></label>
+        <label><input type="radio" name="sensor" value="sentinel-1"><span>Sentinel-1<small>radar (SAR)</small></span></label>
+      </fieldset>
+      <div class="row">
+        <label>Dari
+          <input type="date" id="start" required>
+        </label>
+        <label>Sampai
+          <input type="date" id="end" required>
+        </label>
+      </div>
+      <div class="presets">
+        <button type="button" data-days="3">3 hari</button>
+        <button type="button" data-days="7">7 hari</button>
+        <button type="button" data-days="14">14 hari</button>
+        <button type="button" data-days="30">30 hari</button>
+      </div>
+      <label data-sensor="sentinel-2">Tutupan awan maksimum <output id="cloud-out">50%</output>
+        <input type="range" id="cloud" min="0" max="100" step="5" value="50">
+      </label>
+      <label data-sensor="sentinel-1" hidden>Arah orbit
+        <select id="orbit">
+          <option value="">Semua</option>
+          <option value="ascending">Naik (ascending)</option>
+          <option value="descending">Turun (descending)</option>
+        </select>
+      </label>
+      <button type="submit" id="apply-btn" class="primary">Terapkan</button>
+      <p class="hint">Pencarian memakai area yang sedang terlihat di peta. Tanggal dalam UTC.</p>
+    </form>
+
+    <section class="card">
+      <h2>Tampilan citra</h2>
+      <label>Transparansi <output id="opacity-out">100%</output>
+        <input type="range" id="opacity" min="0" max="100" value="100">
+      </label>
+      <div id="sar-display" hidden>
+        <label>Polarisasi
+          <select id="pol">
+            <option value="vv">VV</option>
+            <option value="vh">VH</option>
+          </select>
+        </label>
+        <div class="row">
+          <label>Batas gelap <output id="vmin-out">30 dB</output>
+            <input type="range" id="vmin" min="10" max="60" value="30">
+          </label>
+          <label>Batas terang <output id="vmax-out">50 dB</output>
+            <input type="range" id="vmax" min="20" max="80" value="50">
+          </label>
+        </div>
+        <p class="hint">Nilai = 20·log<sub>10</sub>(DN), belum dikalibrasi ke σ⁰.</p>
+      </div>
+    </section>
+
+    <section class="results">
+      <div class="results-head">
+        <h2>Hasil</h2>
+        <span class="actions">
+          <button type="button" id="hide-all" class="link" hidden>Sembunyikan semua</button>
+          <button type="button" id="search-here" class="link">Cari di area ini</button>
+        </span>
+      </div>
+      <p id="status" class="status"></p>
+      <div id="results"></div>
+    </section>
+  </aside>
+
+  <aside id="detect-panel" class="side-panel" hidden aria-label="Deteksi oil spill">
+    <div class="sensor-bar">
+      <span id="scheme-chip" class="chip">Optik · MariNeXt</span>
+    </div>
+
+    <form id="detect-form" class="card">
+      <fieldset class="segmented">
+        <legend>Sensor</legend>
+        <label><input type="radio" name="d-sensor" value="sentinel-2" checked><span>Sentinel-2<small>MariNeXt</small></span></label>
+        <label><input type="radio" name="d-sensor" value="sentinel-1"><span>Sentinel-1<small>U-Net SAR</small></span></label>
+      </fieldset>
+
+      <div class="step">
+        <h3>Area analisis</h3>
+        <label id="box-size-field">Ukuran kotak maksimum
+          <select id="box-size"></select>
+        </label>
+        <div class="box-actions">
+          <button type="button" id="draw-box" class="secondary" aria-pressed="false">Gambar kotak</button>
+          <button type="button" id="clear-box" class="link" hidden>Hapus kotak</button>
+        </div>
+        <p id="box-info" class="hint">Klik <strong>Gambar kotak</strong>, lalu tarik di peta. Klik sekali di peta untuk
+          menaruh kotak seukuran pilihan.</p>
+      </div>
+
+      <div class="step">
+        <h3>Tanggal</h3>
+        <div class="row">
+          <label>Dari <input type="date" id="d-start" required></label>
+          <label>Sampai <input type="date" id="d-end" required></label>
+        </div>
+        <div class="presets d-presets">
+          <button type="button" data-days="7">7 hari</button>
+          <button type="button" data-days="14">14 hari</button>
+          <button type="button" data-days="30">30 hari</button>
+          <button type="button" data-days="90">90 hari</button>
+        </div>
+        <label id="d-cloud-field">Tutupan awan maksimum <output id="d-cloud-out">50%</output>
+          <input type="range" id="d-cloud" min="0" max="100" step="5" value="50">
+        </label>
+      </div>
+
+      <div class="step">
+        <h3>Citra</h3>
+        <p id="d-scene-status" class="hint">Gambar kotak dulu; citra yang menutupi kotak dicari otomatis.</p>
+        <div id="d-scenes" class="d-scenes" role="radiogroup" aria-label="Pilih citra"></div>
+      </div>
+
+      <button type="submit" id="detect-btn" class="primary" disabled>Klasifikasi dengan MariNeXt</button>
+      <p id="detect-run-hint" class="hint"></p>
+      <details class="method">
+        <summary>Metode</summary>
+        <div id="method-sar">
+          <p><strong>SAR — U-Net</strong></p>
+          <ol>
+            <li>Sentinel-1 GRD (polarisasi VV) dikalibrasi ke σ⁰ dengan koreksi derau termal, diubah ke
+              dB pada resolusi 10 m, lalu dihaluskan dengan filter median 7 × 7.</li>
+            <li>Nilai dB dipetakan ke 0–255 dengan rentang tetap −35..0 dB.</li>
+            <li>Citra dipotong per ~12,5 × 6,5 km dengan tumpang tindih 50%; tiap potongan diperkecil ke
+              256 × 256 piksel.</li>
+            <li>U-Net menyegmentasi 5 kelas: laut, tumpahan minyak, look-alike, kapal, darat. Tiap
+              potongan juga diprediksi dalam versi terbalik (flip) lalu dirata-rata.</li>
+            <li>Hasil antarpotongan digabung dengan bobot kosinus, lalu minyak dan look-alike
+              dibersihkan dengan operasi morfologi; petak minyak diubah menjadi poligon.</li>
+          </ol>
+        </div>
+        <div id="method-optic">
+          <p><strong>Optik — MariNeXt</strong></p>
+          <ol>
+            <li>Sentinel-2 L1C diunduh hanya untuk area analisis.</li>
+            <li>ACOLITE menghitung reflektansi terkoreksi Rayleigh (<em>rhorc</em>) 11 band pada 10 m.</li>
+            <li>MariNeXt menyegmentasi tiap piksel ke 15 kelas, termasuk Oil Spill, per jendela
+              240 × 240 piksel yang digeser 60 piksel; jendela digabung dengan bobot spline agar tidak
+              muncul pola kisi.</li>
+          </ol>
+        </div>
+      </details>
+    </form>
+
+    <section class="results">
+      <div class="results-head">
+        <h2>Hasil deteksi</h2>
+        <span class="actions">
+          <button type="button" id="detect-clear" class="link" hidden>Hapus</button>
+        </span>
+      </div>
+      <div id="detect-progress" class="progress-card" hidden aria-live="polite">
+        <div class="progress-head">
+          <span class="spinner" aria-hidden="true"></span>
+          <strong id="progress-title">Memproses</strong>
+        </div>
+        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+          <div id="progress-fill"></div>
+        </div>
+        <div class="progress-meta">
+          <span id="progress-elapsed">0 dtk</span>
+          <span id="progress-count"></span>
+        </div>
+        <ol id="progress-steps" class="progress-steps"></ol>
+      </div>
+      <p id="detect-status" class="status"></p>
+      <dl id="detect-summary" class="stats" hidden></dl>
+      <div id="mx-overlay" class="layer-card" hidden>
+        <h3>Layer hasil</h3>
+        <label class="switch">
+          <input type="checkbox" id="mx-show" checked>
+          <span class="track" aria-hidden="true"></span>
+          <span class="swatch classes" aria-hidden="true"></span>
+          <span>Peta kelas</span>
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="oil-show" checked>
+          <span class="track" aria-hidden="true"></span>
+          <span class="swatch oil-poly" aria-hidden="true"></span>
+          <span>Poligon Oil Spill</span>
+        </label>
+        <label class="opacity">Transparansi peta kelas <output id="mx-opacity-out">80%</output>
+          <input type="range" id="mx-opacity" min="0" max="100" value="80">
+        </label>
+      </div>
+      <table id="mx-classes" class="class-table" hidden>
+        <thead><tr><th id="mx-classes-head">Kelas</th><th>km²</th><th>%</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="mx-downloads" class="downloads" hidden></div>
+    </section>
+  </aside>
+
+  <main>
+    <div id="map"></div>
+    <div id="loading" hidden>Memuat citra dari AWS…</div>
+    <form id="geo-search" class="geo-search" role="search" autocomplete="off">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      <input type="search" id="geo-q" placeholder="Cari lokasi atau koordinat (lat, lon)" aria-label="Cari lokasi"
+             aria-controls="geo-results" aria-expanded="false">
+      <ul id="geo-results" class="geo-results" role="listbox" hidden></ul>
+    </form>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js?v=20"></script>
+</body>
+</html>

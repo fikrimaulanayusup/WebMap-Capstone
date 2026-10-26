@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+rasterio>=1.4
+rio-tiler>=7,<8
+morecantile
+numpy
+scipy>=1.11
+shapely>=2
