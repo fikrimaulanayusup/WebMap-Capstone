@@ -70,11 +70,12 @@ per kelas, poligon tiap petak Oil Spill (luas, probabilitas rata-rata/maksimum),
 
 ### Optik: MariNeXt (Sentinel-2)
 
-Model deep learning MariNeXt dari repositori MADOS (`<induk proyek>\Deep Learning\mados-master`),
-model 2 (sama dengan WebGIS kating), 15 kelas. Kodenya di `backend/marinext.py`; repositori MADOS dan ACOLITE **tidak diubah**.
-Bobot model 2 (`trained_models/2/marinext_2.pth`) disalin ke `models/marinext_2.pth` di folder proyek
-dan dibaca dari sana (identik, hasil klasifikasi sama 100%); repo MADOS tetap dibutuhkan untuk kodenya
-(`predict.py`, `mmseg`, `utils`).
+Model deep learning MariNeXt dari repositori MADOS, model 2 (sama dengan WebGIS kating), 15 kelas.
+Kodenya di `backend/marinext.py`; kode MADOS dan ACOLITE **tidak diubah**. Bagian yang dipakai
+disalin apa adanya ke `vendor/`: `vendor/mados` (`marinext/predict.py`, `marinext_wrapper.py`,
+`configs`, `mmseg`, `utils`; `predict.py` tidak ada di repo MADOS resmi) dan `vendor/acolite`
+(ACOLITE Python tanpa LUT). Bobot model 2 (`trained_models/2/marinext_2.pth`) disalin ke
+`models/marinext_2.pth` (identik, hasil klasifikasi sama 100%).
 
 Alur satu klasifikasi (berjalan di latar belakang; panel menampilkan tahap dan waktunya):
 
@@ -86,7 +87,7 @@ Alur satu klasifikasi (berjalan di latar belakang; panel menampilkan tahap dan w
    lambat untuk tile peta (tile pertama ±7 menit). Hanya 13 band untuk area analisis yang diunduh, lalu disusun menjadi folder SAFE yang
    bisa dibaca ACOLITE (metadata asli; band berupa VRT bernama `.jp2` yang menunjuk potongan
    GeoTIFF lokal).
-3. **ACOLITE Python** (env conda `acolite`, kode di `<induk proyek>\Acolite\acolite-main`)
+3. **ACOLITE Python** (env conda `acolite`, kode di `vendor\acolite`)
    dijalankan dengan setelan yang sama seperti data latih MADOS: `s2_target_res=10`,
    `output_rhorc=True`, `l2r_export_geotiff=True`.
 4. **`marinext/predict.py`** (env conda `mados`) dijalankan apa adanya pada 11 band rhorc.
@@ -145,13 +146,14 @@ Citra bersunglint berada di luar sebaran data latih; hasilnya tidak andal dengan
 penggabungan mana pun (pada langkah 60 pola berulangnya pun masih tersisa, 12,1).
 
 Persyaratan di komputer: conda dengan env `acolite` (dibuat dari
-`environment.yml` ACOLITE lewat channel conda-forge) dan env `mados`; LUT ACOLITE di
-`acolite-main\data\LUT` (tautan ke LUT instalasi `acolite_py_win`).
+`vendor\acolite\environment.yml` lewat channel conda-forge) dan env `mados`. LUT ACOLITE
+(`vendor\acolite\data\LUT`, ~1,7 GB) tidak ikut repo: pada klasifikasi pertama ACOLITE
+mengunduhnya sendiri dari GitHub (butuh internet, beberapa menit). Bila LUT sudah ada di instalasi
+lain, cukup tautkan: `cmd /c mklink /J vendor\acolite\data\LUT <folder LUT yang ada>`.
 
 Lokasi bawaan tidak terikat ke `C:\`:
-- repo MADOS dan ACOLITE dicari relatif terhadap **folder induk proyek**:
-  `<induk>\Deep Learning\mados-master` dan `<induk>\Acolite\acolite-main` (di laptop pengembang
-  induknya `C:\Akademik\Capstone`); susunan folder `Capstone` bisa disalin ke drive mana pun;
+- kode MADOS dan ACOLITE dibaca dari `vendor\mados` dan `vendor\acolite` di folder proyek, jadi
+  cukup clone repo ini;
 - `conda.exe` dicari berurutan: `MARINEXT_CONDA`, `CONDA_EXE` (terisi bila server dijalankan dari
   Anaconda Prompt), lalu `miniconda3` / `anaconda3` / `miniforge3` di `C:\`, folder user,
   `AppData\Local`, dan `C:\ProgramData`;
@@ -316,6 +318,8 @@ backend/sources.py       daftar bucket S3 dan cara membuka/mengambil filenya
 backend/remote_cache.py  unduhan paralel + cache potongan file COG di disk
 frontend/                index.html, app.js, style.css (Leaflet)
 models/                  unet_oilspill.keras (U-Net SAR, Keras 3), marinext_2.pth (MariNeXt model 2)
+vendor/mados/            salinan kode MADOS yang dipakai (predict.py, mmseg, utils; MIT)
+vendor/acolite/          salinan ACOLITE Python tanpa LUT (GPL-3.0)
 cache/                   potongan COG yang sudah diunduh (aman dihapus, maks. 5 GB)
 cache/jobs/              folder kerja & hasil per pekerjaan klasifikasi (20 terakhir)
 ```

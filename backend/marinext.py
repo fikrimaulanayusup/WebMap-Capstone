@@ -38,11 +38,12 @@ from .geo import DetectionError, analysis_box, land_mask, lonlat_grid, raster_gr
 from .results import summarise
 
 # ---------------------------------------------------------------- Lokasi (bisa diubah lewat env var)
-# Bawaan relatif terhadap folder induk proyek (di laptop pengembang C:\Akademik\Capstone), sehingga
-# susunan folder Capstone bisa disalin ke drive/folder mana pun tanpa pengaturan.
-_CAPSTONE = Path(__file__).resolve().parents[2]
-ACOLITE_DIR = Path(os.environ.get("MARINEXT_ACOLITE_DIR", _CAPSTONE / "Acolite" / "acolite-main"))
-MADOS_DIR = Path(os.environ.get("MARINEXT_MADOS_DIR", _CAPSTONE / "Deep Learning" / "mados-master"))
+# Bawaan di folder `vendor` proyek: salinan apa adanya dari bagian MADOS (predict.py, mmseg, utils)
+# dan ACOLITE yang dipakai, sehingga cukup clone repo ini. LUT ACOLITE (vendor/acolite/data/LUT)
+# tidak ikut repo; ACOLITE mengunduhnya sendiri saat pertama kali dipakai.
+_VENDOR = Path(__file__).resolve().parents[1] / "vendor"
+ACOLITE_DIR = Path(os.environ.get("MARINEXT_ACOLITE_DIR", _VENDOR / "acolite"))
+MADOS_DIR = Path(os.environ.get("MARINEXT_MADOS_DIR", _VENDOR / "mados"))
 ACOLITE_ENV = os.environ.get("MARINEXT_ACOLITE_ENV", "acolite")
 MADOS_ENV = os.environ.get("MARINEXT_MADOS_ENV", "mados")
 # Model 2 dari 5 hasil training MADOS, sama dengan pilihan WebGIS kating. Pada uji Karawang

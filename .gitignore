@@ -1,3 +1,8 @@
 .venv/
 cache/
 __pycache__/
+# LUT ACOLITE (~1,7 GB) diunduh otomatis oleh ACOLITE; folder kerja ACOLITE
+vendor/acolite/data/LUT
+vendor/acolite/downloads/
+vendor/acolite/scratch/
+vendor/acolite/external/
