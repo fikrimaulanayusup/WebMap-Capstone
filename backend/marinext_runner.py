@@ -1,6 +1,6 @@
 """Prediksi MariNeXt dengan penggabungan jendela yang halus; dijalankan di env conda `mados`.
 
-python marinext_runner.py --mados_dir <repo MADOS> --input <folder rhorc> --model_path <folder .pth>
+python marinext_runner.py --mados_dir <repo MADOS> --input <folder rhorc> --model_path <berkas atau folder .pth>
                           --output <folder hasil> [--stride 120] [--tta False]
 
 Repositori MADOS tidak diubah: `marinext/predict.py` diimpor apa adanya (baca 11 band rhorc,

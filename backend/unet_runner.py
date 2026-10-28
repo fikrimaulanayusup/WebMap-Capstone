@@ -1,6 +1,7 @@
-"""Prediksi U-Net SAR kating; dijalankan di env conda `unet` (TensorFlow 2.10 / Keras 2.10).
+"""Prediksi U-Net SAR; dijalankan di env conda `unet3` (TensorFlow 2.21 / Keras 3) untuk model
+.keras, atau env `unet` (TensorFlow 2.10) untuk SavedModel kating.
 
-python unet_runner.py <model_dir> <input.npz> <output.npy>
+python unet_runner.py <model .keras | folder SavedModel> <input.npz> <output.npy>
 
 input.npz : image uint8 (H, W) citra SAR 8-bit, windows int (N, 2) pojok kiri-atas potongan,
             tile (th, tw) ukuran potongan, mode "cepat" | "standar" | "akurat"
@@ -64,8 +65,31 @@ def _combine(p, big_shape, ph, pw, th, tw, mode):
     return (zoom_out + p[1] + zoom_in) / 3
 
 
-def main(model_dir: str, src: str, dst: str):
-    model = tf.keras.models.load_model(model_dir, compile=False)
+def _predictor(model_path: str, batch: int = 16):
+    """Fungsi x (N, 256, 256, 3) -> probabilitas (N, 256, 256, 5).
+
+    - Berkas `.keras` / `.h5` (mis. U-Net yang dilatih ulang dengan Keras 3): `load_model` biasa.
+    - Folder SavedModel kating (Keras 2.10): graf dipanggil lewat signature `serving_default`.
+      Keras 3 tidak bisa memuat folder ini dengan `load_model`, dan TensorFlow >= 2.16 gagal
+      memuatnya sama sekali karena state optimizer Keras 2 ikut tersimpan; folder ini tetap
+      butuh env TensorFlow 2.10.
+    """
+    if os.path.isfile(model_path):
+        model = tf.keras.models.load_model(model_path, compile=False)
+        return lambda x: model.predict(x, batch_size=batch, verbose=0)
+
+    serve = tf.saved_model.load(model_path).signatures["serving_default"]
+    (name,) = serve.structured_input_signature[1]
+
+    def predict(x):
+        out = [next(iter(serve(**{name: tf.constant(x[i:i + batch])}).values())).numpy()
+               for i in range(0, len(x), batch)]
+        return np.concatenate(out)
+    return predict
+
+
+def main(model_path: str, src: str, dst: str):
+    predict = _predictor(model_path)
     data = np.load(src)
     image, windows = data["image"], data["windows"]
     th, tw = (int(v) for v in data["tile"])
@@ -85,7 +109,7 @@ def main(model_dir: str, src: str, dst: str):
             for fx, fy in flips:
                 inputs += _inputs(np.ascontiguousarray(_flip(big, fx, fy)), ph, pw, th, tw, mode)
         x = np.repeat(np.stack(inputs)[..., None], 3, axis=-1).astype("float32") / 255.0
-        probs = model.predict(x, batch_size=16, verbose=0)
+        probs = predict(x)
         per_variant = len(inputs) // (len(chunk) * len(flips))
         k = 0
         for i, shape in enumerate(bigs):

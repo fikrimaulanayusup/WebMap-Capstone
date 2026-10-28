@@ -3,7 +3,7 @@
 WebGIS yang mencari citra Sentinel-2 (optik) dan Sentinel-1 GRD (radar) di AWS Open Data
 berdasarkan **rentang tanggal** dan area peta, menampilkannya langsung dari bucket S3 sebagai
 layer peta, lalu **mengklasifikasikan oil slick**: Sentinel-2 dengan model deep learning
-MariNeXt (MADOS), Sentinel-1 dengan model deep learning U-Net dari WebGIS kating.
+MariNeXt (MADOS), Sentinel-1 dengan model deep learning U-Net (arsitektur kating, dilatih ulang dengan Keras 3).
 
 ## Menjalankan
 
@@ -70,8 +70,11 @@ per kelas, poligon tiap petak Oil Spill (luas, probabilitas rata-rata/maksimum),
 
 ### Optik: MariNeXt (Sentinel-2)
 
-Model deep learning MariNeXt dari repositori MADOS (`C:\Akademik\Capstone\Deep Learning\mados-master`),
+Model deep learning MariNeXt dari repositori MADOS (`<induk proyek>\Deep Learning\mados-master`),
 model 2 (sama dengan WebGIS kating), 15 kelas. Kodenya di `backend/marinext.py`; repositori MADOS dan ACOLITE **tidak diubah**.
+Bobot model 2 (`trained_models/2/marinext_2.pth`) disalin ke `models/marinext_2.pth` di folder proyek
+dan dibaca dari sana (identik, hasil klasifikasi sama 100%); repo MADOS tetap dibutuhkan untuk kodenya
+(`predict.py`, `mmseg`, `utils`).
 
 Alur satu klasifikasi (berjalan di latar belakang; panel menampilkan tahap dan waktunya):
 
@@ -83,7 +86,7 @@ Alur satu klasifikasi (berjalan di latar belakang; panel menampilkan tahap dan w
    lambat untuk tile peta (tile pertama ±7 menit). Hanya 13 band untuk area analisis yang diunduh, lalu disusun menjadi folder SAFE yang
    bisa dibaca ACOLITE (metadata asli; band berupa VRT bernama `.jp2` yang menunjuk potongan
    GeoTIFF lokal).
-3. **ACOLITE Python** (env conda `acolite`, kode di `C:\Akademik\Capstone\Acolite\acolite-main`)
+3. **ACOLITE Python** (env conda `acolite`, kode di `<induk proyek>\Acolite\acolite-main`)
    dijalankan dengan setelan yang sama seperti data latih MADOS: `s2_target_res=10`,
    `output_rhorc=True`, `l2r_export_geotiff=True`.
 4. **`marinext/predict.py`** (env conda `mados`) dijalankan apa adanya pada 11 band rhorc.
@@ -141,19 +144,41 @@ tidak berulang. Tabel di bawah membandingkan `predict.py` asli dengan versi spli
 Citra bersunglint berada di luar sebaran data latih; hasilnya tidak andal dengan cara
 penggabungan mana pun (pada langkah 60 pola berulangnya pun masih tersisa, 12,1).
 
-Persyaratan di komputer: conda di `C:\miniconda3` dengan env `acolite` (dibuat dari
+Persyaratan di komputer: conda dengan env `acolite` (dibuat dari
 `environment.yml` ACOLITE lewat channel conda-forge) dan env `mados`; LUT ACOLITE di
-`acolite-main\data\LUT` (tautan ke LUT instalasi `acolite_py_win`). Lokasi bisa diubah lewat
-variabel lingkungan `MARINEXT_CONDA`, `MARINEXT_ACOLITE_DIR`, `MARINEXT_MADOS_DIR`,
-`MARINEXT_ACOLITE_ENV`, `MARINEXT_MADOS_ENV`.
+`acolite-main\data\LUT` (tautan ke LUT instalasi `acolite_py_win`).
+
+Lokasi bawaan tidak terikat ke `C:\`:
+- repo MADOS dan ACOLITE dicari relatif terhadap **folder induk proyek**:
+  `<induk>\Deep Learning\mados-master` dan `<induk>\Acolite\acolite-main` (di laptop pengembang
+  induknya `C:\Akademik\Capstone`); susunan folder `Capstone` bisa disalin ke drive mana pun;
+- `conda.exe` dicari berurutan: `MARINEXT_CONDA`, `CONDA_EXE` (terisi bila server dijalankan dari
+  Anaconda Prompt), lalu `miniconda3` / `anaconda3` / `miniforge3` di `C:\`, folder user,
+  `AppData\Local`, dan `C:\ProgramData`;
+- kedua model dibaca dari `models\` di folder proyek.
+
+Bila folder MADOS, ACOLITE, atau model tidak ditemukan, klasifikasi langsung ditolak dengan pesan
+lokasinya. Semua lokasi bisa diubah lewat variabel lingkungan `MARINEXT_CONDA`, `MARINEXT_ACOLITE_DIR`, `MARINEXT_MADOS_DIR`,
+`MARINEXT_ACOLITE_ENV`, `MARINEXT_MADOS_ENV`, dan `MARINEXT_MODEL` (berkas `.pth`; bila diisi folder,
+semua `.pth` di dalamnya dipakai sebagai ensemble).
 
 ### SAR: U-Net (Sentinel-1)
 
-Model U-Net dari WebGIS kating (`C:\Akademik\Capstone\WEBGIS KATING\webgis\models\saved_unetmodel_tf`,
-Keras 2.10, optimizer Adam), dilatih pada *Oil Spill Detection Dataset* (Krestenitis dkk.), 5
-kelas: laut, tumpahan minyak, look-alike, kapal, darat. Model dimuat apa adanya; kodenya di
-`backend/sar_unet.py` (alur) dan `backend/unet_runner.py` (prediksi, dijalankan di env conda
-`unet`: Python 3.10, `tensorflow-cpu` 2.10.1, `numpy` 1.23.5, `opencv-python-headless` 4.7).
+Model bawaan: **`models/unet_oilspill.keras`**, U-Net dengan arsitektur yang sama seperti model
+kating, dilatih ulang dengan **Keras 3** (Kaggle, Keras 3.13.2, 100 epoch, Adam) pada
+*Oil Spill Detection Dataset* (Krestenitis dkk.), 5 kelas: laut, tumpahan minyak, look-alike,
+kapal, darat. Kodenya di `backend/sar_unet.py` (alur) dan `backend/unet_runner.py` (prediksi,
+dijalankan di env conda `unet3`: Python 3.12, `tensorflow` 2.21.0, Keras 3.15.1, `numpy` 2.5,
+`opencv-python-headless` 5.0). Model ini **belum dievaluasi** pada 110 gambar uji; angka evaluasi
+di bawah adalah milik model kating.
+
+Model kating asli (`C:\Akademik\Capstone\WEBGIS KATING\webgis\models\saved_unetmodel_tf`, SavedModel
+Keras 2.10) masih bisa dipakai dengan `SAR_UNET_MODEL=<folder itu>` dan `SAR_UNET_ENV=unet`
+(env lama: Python 3.10, `tensorflow-cpu` 2.10.1, `numpy` 1.23.5, `opencv-python-headless` 4.7).
+SavedModel ini tidak bisa dibaca TensorFlow ≥ 2.16 / Keras 3: `load_model` menolak formatnya, dan
+`tf.saved_model.load` gagal karena state optimizer Keras 2 ikut tersimpan. `unet_runner.py` memilih
+cara memuat sesuai jenisnya: berkas `.keras`/`.h5` lewat `load_model`, folder SavedModel lewat
+signature `serving_default` (hasilnya identik dengan cara lama, selisih 0).
 
 Gambar latih dataset adalah potongan Sentinel-1 1250 × 650 piksel, oleh kating diperkecil ke
 256 × 256. Alurnya:
@@ -203,7 +228,7 @@ Urutan kelas keluaran (0 laut, 1 minyak, 2 look-alike, 3 kapal, 4 darat) diperik
 uji dataset; peta warna di `usetrainedmodel.py` kating tidak sesuai dengan urutan ini, yang di
 `app.py` sesuai.
 
-**Evaluasi pada 110 gambar uji dataset** (praproses kating):
+**Evaluasi model kating pada 110 gambar uji dataset** (praproses kating):
 
 | Kelas | IoU (Adam, dipakai) | IoU (Nadam) |
 |---|---|---|
@@ -241,7 +266,8 @@ diunduh dari AWS.
 - **MariNeXt**: hasil hanya sebaik model dan data latihnya (MADOS). Awan tidak punya kelas di
   MADOS dan tidak dimasker, jadi area berawan bisa diberi kelas laut apa pun. Garis batas jendela
   prediksi (lihat catatan model) memengaruhi luas.
-- **U-Net SAR**: IoU minyak pada data uji hanya ~40%, dan belum divalidasi pada kejadian
+- **U-Net SAR**: IoU minyak model kating pada data uji hanya ~40% (model Keras 3 bawaan belum
+  dievaluasi), dan belum divalidasi pada kejadian
   tumpahan nyata di citra AWS; hasilnya kandidat untuk diperiksa visual. Menurut paper dataset
   (Krestenitis dkk., 2019, *Remote Sensing* 11(15):1762, https://doi.org/10.3390/rs11151762),
   gambar latih dibuat dari VV terkalibrasi, median 7 × 7, transformasi linear dB → kecerahan,
@@ -280,8 +306,8 @@ Tidak perlu akun atau kredensial AWS.
 backend/main.py          API: /api/search (STAC), /api/tiles (tile PNG), /api/marinext,
                          /api/sar-unet, /api/jobs/<id> (status & berkas hasil)
 backend/marinext.py      klasifikasi MariNeXt: L1C AWS -> ACOLITE -> predict.py MADOS (Sentinel-2)
-backend/sar_unet.py      klasifikasi U-Net SAR kating: σ⁰ -> dB −35..0 -> potongan -> U-Net 5 kelas (Sentinel-1)
-backend/unet_runner.py   prediksi U-Net, dijalankan di env conda `unet`
+backend/sar_unet.py      klasifikasi U-Net SAR: σ⁰ -> dB −35..0 -> potongan -> U-Net 5 kelas (Sentinel-1)
+backend/unet_runner.py   prediksi U-Net, dijalankan di env conda `unet3` (Keras 3)
 backend/sar.py           pembacaan & kalibrasi σ⁰ Sentinel-1 GRD, reproyeksi ke UTM
 backend/jobs.py          antrean pekerjaan latar belakang (satu sekaligus) & pemanggil conda
 backend/results.py       ringkasan hasil: GeoTIFF, GeoJSON poligon, overlay PNG, luas per kelas
@@ -289,6 +315,7 @@ backend/geo.py           grid, masker darat Copernicus DEM, kotak analisis
 backend/sources.py       daftar bucket S3 dan cara membuka/mengambil filenya
 backend/remote_cache.py  unduhan paralel + cache potongan file COG di disk
 frontend/                index.html, app.js, style.css (Leaflet)
+models/                  unet_oilspill.keras (U-Net SAR, Keras 3), marinext_2.pth (MariNeXt model 2)
 cache/                   potongan COG yang sudah diunduh (aman dihapus, maks. 5 GB)
 cache/jobs/              folder kerja & hasil per pekerjaan klasifikasi (20 terakhir)
 ```

@@ -38,13 +38,19 @@ from .geo import DetectionError, analysis_box, land_mask, lonlat_grid, raster_gr
 from .results import summarise
 
 # ---------------------------------------------------------------- Lokasi (bisa diubah lewat env var)
-ACOLITE_DIR = Path(os.environ.get("MARINEXT_ACOLITE_DIR", r"C:\Akademik\Capstone\Acolite\acolite-main"))
-MADOS_DIR = Path(os.environ.get("MARINEXT_MADOS_DIR", r"C:\Akademik\Capstone\Deep Learning\mados-master"))
+# Bawaan relatif terhadap folder induk proyek (di laptop pengembang C:\Akademik\Capstone), sehingga
+# susunan folder Capstone bisa disalin ke drive/folder mana pun tanpa pengaturan.
+_CAPSTONE = Path(__file__).resolve().parents[2]
+ACOLITE_DIR = Path(os.environ.get("MARINEXT_ACOLITE_DIR", _CAPSTONE / "Acolite" / "acolite-main"))
+MADOS_DIR = Path(os.environ.get("MARINEXT_MADOS_DIR", _CAPSTONE / "Deep Learning" / "mados-master"))
 ACOLITE_ENV = os.environ.get("MARINEXT_ACOLITE_ENV", "acolite")
 MADOS_ENV = os.environ.get("MARINEXT_MADOS_ENV", "mados")
 # Model 2 dari 5 hasil training MADOS, sama dengan pilihan WebGIS kating. Pada uji Karawang
 # 12-09-2019 hasilnya lebih dekat ke rata-rata kelima model (IoU Oil Spill 89%) daripada model 1 (84%).
-MODEL_PATH = MADOS_DIR / "marinext" / "trained_models" / "2"
+# Salinan `trained_models/2/marinext_2.pth` disimpan di folder `models` proyek agar ikut terbawa
+# bersama kode. Sengaja menunjuk berkas, bukan folder: predict.py menjadikan semua .pth dalam
+# satu folder sebagai ensemble.
+MODEL_PATH = Path(os.environ.get("MARINEXT_MODEL", Path(__file__).resolve().parents[1] / "models" / "marinext_2.pth"))
 # Prediksi lewat runner sendiri (repo MADOS tetap tidak diubah): penggabungan jendela berbobot
 # spline. Uji 12-09-2019 T48MXU: rasio garis kisi 7,95 -> 1,09; validasi Karawang hampir sama
 # (Oil Spill 4,09 -> 3,95 km2, kesesuaian kelas 91%).
@@ -104,6 +110,12 @@ def start_job(item_l2a: dict, bbox, max_km: int = 20) -> str:
     """Mulai klasifikasi untuk scene L2A `item_l2a` pada kotak `bbox` (lon/lat) pilihan pengguna."""
     if max_km not in AOI_SIZES_KM:
         raise DetectionError(f"Ukuran kotak harus salah satu dari {AOI_SIZES_KM} km.")
+    if not MODEL_PATH.exists():
+        raise DetectionError(f"Model MariNeXt tidak ditemukan di {MODEL_PATH}.")
+    if not (MADOS_DIR / "marinext" / "predict.py").is_file():
+        raise DetectionError(f"Repo MADOS (marinext/predict.py) tidak ditemukan di {MADOS_DIR}.")
+    if not (ACOLITE_DIR / "launch_acolite.py").is_file():
+        raise DetectionError(f"ACOLITE (launch_acolite.py) tidak ditemukan di {ACOLITE_DIR}.")
     aoi = analysis_box(bbox, item_l2a["bbox"], max_km)
     return jobs.start("marinext", STAGES, aoi, lambda job: _run(job, item_l2a, aoi))
 

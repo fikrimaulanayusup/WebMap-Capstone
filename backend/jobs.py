@@ -19,7 +19,25 @@ from .geo import DetectionError
 
 WORK_DIR = Path(__file__).resolve().parent.parent / "cache" / "jobs"
 KEEP_JOBS = 20
-CONDA = os.environ.get("MARINEXT_CONDA", r"C:\miniconda3\Scripts\conda.exe")
+
+
+def _find_conda() -> str:
+    """conda.exe untuk menjalankan env model: MARINEXT_CONDA, lalu CONDA_EXE (terisi bila server
+    dijalankan dari Anaconda Prompt), lalu lokasi instalasi umum Miniconda/Anaconda/Miniforge."""
+    if os.environ.get("MARINEXT_CONDA"):
+        return os.environ["MARINEXT_CONDA"]
+    home = Path.home()
+    candidates = [os.environ.get("CONDA_EXE")] + [
+        str(root / name / "Scripts" / "conda.exe")
+        for root in (Path("C:/"), home, home / "AppData" / "Local", Path("C:/ProgramData"))
+        for name in ("miniconda3", "anaconda3", "miniforge3")]
+    for path in candidates:
+        if path and Path(path).is_file():
+            return path
+    return r"C:\miniconda3\Scripts\conda.exe"  # tidak ditemukan; galatnya muncul saat dipakai
+
+
+CONDA = _find_conda()
 RESULT_FILES = {
     "classes.png": "image/png",
     "classes.tif": "image/tiff",

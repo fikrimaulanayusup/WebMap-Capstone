@@ -1,8 +1,11 @@
-"""Klasifikasi SAR Sentinel-1 dengan U-Net dari WebGIS kating (5 kelas, Oil Spill Detection Dataset).
+"""Klasifikasi SAR Sentinel-1 dengan U-Net (5 kelas, Oil Spill Detection Dataset).
 
-Model: `models/saved_unetmodel_tf` di folder WebGIS kating (Keras 2.10, optimizer Adam), dimuat
-apa adanya di env conda `unet`. Evaluasi pada 110 gambar uji dataset: IoU minyak 39,6%
-(F1 56,7%), laut 94,8%, look-alike 40,5%, kapal 22,1%, darat 91,2%.
+Model bawaan: `models/unet_oilspill.keras` di folder proyek, U-Net arsitektur kating yang dilatih
+ulang dengan Keras 3 (Kaggle, 100 epoch), dijalankan di env conda `unet3` (TensorFlow 2.21 /
+Keras 3). Model kating asli (`models/saved_unetmodel_tf` di folder WebGIS kating, Keras 2.10)
+masih bisa dipakai lewat SAR_UNET_MODEL=<folder itu> dan SAR_UNET_ENV=unet (TensorFlow 2.10);
+evaluasinya pada 110 gambar uji dataset: IoU minyak 39,6% (F1 56,7%), laut 94,8%,
+look-alike 40,5%, kapal 22,1%, darat 91,2%.
 
 Alur:
   1. sigma0 VV terkalibrasi pada 10 m -> dB -> median 7 x 7 (redam speckle); kotak yang terlalu
@@ -10,7 +13,7 @@ Alur:
   2. dB dipetakan ke 0-255 dengan rentang tetap -35..0 dB (sama dengan ekspor SNAP); piksel tanpa
      data diisi nilai laut tipikal (median), bukan 0;
   3. dipotong per ~12,5 x 6,5 km (seukuran gambar latih 1250 x 650 piksel 10 m), tumpang
-     tindih 50%; tiap potongan diperkecil ke 256 x 256 dengan cv2 di env `unet`;
+     tindih 50%; tiap potongan diperkecil ke 256 x 256 dengan cv2 di env model;
   4. probabilitas digabung dengan bobot kosinus agar batas potongan tidak tampak;
   5. pembersihan morfologi seperti app.py kating; semua kelas (termasuk Darat) murni dari model,
      tanpa masker darat dan tanpa batas luas petak minimum;
@@ -31,8 +34,9 @@ from . import jobs, sar
 from .geo import DetectionError, analysis_box, lonlat_grid
 from .results import summarise
 
-MODEL_DIR = Path(os.environ.get("SAR_UNET_MODEL", r"C:\Akademik\Capstone\WEBGIS KATING\webgis\models\saved_unetmodel_tf"))
-UNET_ENV = os.environ.get("SAR_UNET_ENV", "unet")
+# Berkas .keras (Keras 3) atau folder SavedModel (Keras 2.10); lihat unet_runner._predictor.
+MODEL_PATH = Path(os.environ.get("SAR_UNET_MODEL", Path(__file__).resolve().parents[1] / "models" / "unet_oilspill.keras"))
+UNET_ENV = os.environ.get("SAR_UNET_ENV", "unet3")
 RUNNER = Path(__file__).resolve().parent / "unet_runner.py"
 
 AOI_SIZES_KM = (20, 40, 80)
@@ -62,8 +66,8 @@ def start_job(item: dict, bbox, max_km: int, mode: str = "standar") -> str:
         raise DetectionError(f"Ukuran kotak SAR harus salah satu dari {AOI_SIZES_KM} km.")
     if mode not in MODES:
         raise DetectionError(f"Mode prediksi harus salah satu dari {MODES}.")
-    if not MODEL_DIR.is_dir():
-        raise DetectionError(f"Model U-Net tidak ditemukan di {MODEL_DIR}.")
+    if not MODEL_PATH.exists():
+        raise DetectionError(f"Model U-Net tidak ditemukan di {MODEL_PATH}.")
     aoi = analysis_box(bbox, item["bbox"], max_km)
     return jobs.start("sar-unet", STAGES, aoi, lambda job: _run(job, item, aoi, mode))
 
@@ -106,7 +110,7 @@ def _run(job: jobs.Job, item: dict, aoi, mode: str) -> dict:
     job.stage(1)
     src, dst = job.dir / "unet_input.npz", job.dir / "unet_probs.npy"
     np.savez(src, image=image, windows=np.array(windows, dtype="int64"), tile=np.array([th, tw]), mode=mode)
-    jobs.conda_run(UNET_ENV, [str(RUNNER), str(MODEL_DIR), str(src), str(dst)],
+    jobs.conda_run(UNET_ENV, [str(RUNNER), str(MODEL_PATH), str(src), str(dst)],
                    RUNNER.parent, job.dir / "unet.log", timeout=30 * 60)
     probs = np.load(dst)  # (N, 256, 256, 5)
 

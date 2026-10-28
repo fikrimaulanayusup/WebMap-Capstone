@@ -6,7 +6,7 @@ Tugas:
   2. /api/tiles    -> membaca COG langsung dari bucket S3 publik (akses anonim) dan
                       menyajikannya sebagai tile PNG untuk peta.
   3. /api/marinext -> klasifikasi optik 15 kelas MADOS dengan MariNeXt (Sentinel-2, marinext.py).
-  4. /api/sar-unet -> klasifikasi SAR 5 kelas dengan U-Net kating (Sentinel-1, sar_unet.py).
+  4. /api/sar-unet -> klasifikasi SAR 5 kelas dengan U-Net (Sentinel-1, sar_unet.py).
   Keduanya berjalan di latar belakang (jobs.py); status & berkas hasil lewat /api/jobs/<id>.
 """
 
@@ -369,7 +369,7 @@ def marinext_start(req: JobRequest):
 
 @app.post("/api/sar-unet")
 def sar_unet_start(req: JobRequest):
-    """Klasifikasi U-Net kating (5 kelas) untuk scene Sentinel-1; hasil lewat /api/jobs."""
+    """Klasifikasi U-Net (5 kelas) untuk scene Sentinel-1; hasil lewat /api/jobs."""
     return _start(lambda item, bbox, km: sar_unet.start_job(item, bbox, km, req.mode), "sentinel-1", req)
 
 
