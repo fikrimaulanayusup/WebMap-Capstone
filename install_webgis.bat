@@ -336,12 +336,22 @@ REM Cek apakah environment unet3 sudah ada
 call "%CONDA_PATH%" run -n unet3 python --version >nul 2>&1
 if not errorlevel 1 goto UNET_ALREADY_EXISTS
 
+echo Menyetujui Terms of Service Conda jika diperlukan...
+call "%CONDA_PATH%" tos accept >nul 2>&1
+call "%CONDA_PATH%" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >nul 2>&1
+call "%CONDA_PATH%" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r >nul 2>&1
+call "%CONDA_PATH%" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/msys2 >nul 2>&1
+
 echo Membuat environment Conda 'unet3' baru dengan Python 3.10...
-call "%CONDA_PATH%" create -n unet3 python=3.10 -y
+call "%CONDA_PATH%" create -n unet3 -c conda-forge --override-channels python=3.10 -y
 if errorlevel 1 (
-    echo [ERROR] Gagal membuat conda environment unet3.
-    pause
-    goto MENU
+    echo [INFO] Mencoba membuat unet3 dengan channel default...
+    call "%CONDA_PATH%" create -n unet3 python=3.10 -y
+    if errorlevel 1 (
+        echo [ERROR] Gagal membuat conda environment unet3.
+        pause
+        goto MENU
+    )
 )
 goto UNET_INSTALL_PKGS
 
@@ -418,6 +428,10 @@ echo [SUKSES] Miniconda berhasil dipasang!
 :DO_SETUP_MARINEXT
 echo Ditemukan Conda: "%CONDA_PATH%"
 echo.
+call "%CONDA_PATH%" tos accept >nul 2>&1
+call "%CONDA_PATH%" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >nul 2>&1
+call "%CONDA_PATH%" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r >nul 2>&1
+call "%CONDA_PATH%" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/msys2 >nul 2>&1
 
 REM --- [A] Environment MADOS ---
 echo [A] Menyiapkan environment Conda 'mados' ...
