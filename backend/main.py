@@ -2,7 +2,9 @@
 
 Tugas:
   1. /api/search   -> mencari scene Sentinel-1 GRD atau Sentinel-2 L2A di katalog STAC
-                      Earth Search (AWS) berdasarkan rentang tanggal + bbox.
+                      Earth Search (AWS), atau Landsat 8 L2 di katalog STAC Microsoft Planetary
+                      Computer, berdasarkan rentang tanggal + bbox. Tile Landsat dirender oleh
+                      Planetary Computer sendiri (gratis, tanpa akun); backend hanya memberi URL-nya.
   2. /api/tiles    -> membaca COG langsung dari bucket S3 publik (akses anonim) dan
                       menyajikannya sebagai tile PNG untuk peta.
   3. /api/marinext -> klasifikasi optik 15 kelas MADOS dengan MariNeXt (Sentinel-2, marinext.py).
@@ -17,6 +19,7 @@ import pathlib
 import re
 import threading
 import time
+import urllib.parse
 from datetime import date
 
 # Wheel rasterio membawa data PROJ/GDAL sendiri. Jika mesin punya PROJ_LIB dari instalasi
@@ -55,7 +58,21 @@ SENSORS = {
     "sentinel-1": {"collection": "sentinel-1-grd", "assets": ("vv", "vh", "hh", "hv")},
     # "visual" = komposit warna asli 10 m (TCI); "preview" = versi 320 m untuk zoom jauh.
     "sentinel-2": {"collection": "sentinel-2-c1-l2a", "assets": ("visual", "preview")},
+    # Landsat 8 tidak lewat /api/tiles: file di AWS bersifat requester pays (berbayar), jadi
+    # pencarian dan tile memakai Planetary Computer.
+    "landsat-8": {"collection": "landsat-c2-l2", "assets": ()},
 }
+
+# Microsoft Planetary Computer: katalog STAC + layanan render tile, akses anonim.
+PC_STAC_API = "https://planetarycomputer.microsoft.com/api/stac/v1"
+PC_DATA_API = "https://planetarycomputer.microsoft.com/api/data/v1"
+# Komposit warna asli dari reflektansi permukaan; formula warna sama dengan pratinjau resmi
+# Planetary Computer untuk koleksi landsat-c2-l2.
+PC_LANDSAT_RGB = [
+    ("assets", "red"), ("assets", "green"), ("assets", "blue"),
+    ("color_formula", "gamma RGB 2.7, saturation 1.5, sigmoidal RGB 15 0.55"),
+    ("format", "png"),
+]
 
 GDAL_ENV = {"GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR"}
 WEB_MERCATOR = morecantile.tms.get("WebMercatorQuad")
@@ -63,6 +80,8 @@ SCENE_ID_RE = re.compile(r"^S[12][A-Z]_[A-Za-z0-9_]{10,100}$")
 
 app = FastAPI(title="Web-Map Tumpahan Minyak - Sentinel AWS")
 stac = httpx.Client(base_url=STAC_API, timeout=30)
+pc_stac = httpx.Client(base_url=PC_STAC_API, timeout=30)
+CATALOG_NAMES = {"sentinel-1": "Earth Search", "sentinel-2": "Earth Search", "landsat-8": "Planetary Computer"}
 
 # (sensor, scene_id) -> {"vv": (bucket, key), ...}; diisi saat pencarian supaya permintaan
 # tile tidak perlu bertanya ke STAC lagi.
@@ -98,6 +117,14 @@ def _slim_feature(sensor: str, item: dict) -> dict:
         slim["mode"] = props.get("sar:instrument_mode")
         slim["orbit_state"] = props.get("sat:orbit_state")
         slim["relative_orbit"] = props.get("sat:relative_orbit")
+    elif sensor == "landsat-8":
+        slim["cloud_cover"] = props.get("eo:cloud_cover")
+        path, row = props.get("landsat:wrs_path"), props.get("landsat:wrs_row")
+        slim["tile"] = f"{path}/{row}" if path and row else ""
+        query = urllib.parse.urlencode([("collection", SENSORS[sensor]["collection"]), ("item", item["id"]), *PC_LANDSAT_RGB])
+        # Template tile Leaflet ({z}/{x}/{y}); dirender langsung oleh Planetary Computer.
+        slim["tiles"] = f"{PC_DATA_API}/item/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}@1x?{query}"
+        slim["thumbnail"] = f"{PC_DATA_API}/item/preview.png?{query}&max_size=128"
     else:
         slim["cloud_cover"] = props.get("eo:cloud_cover")
         slim["tile"] = (props.get("grid:code") or "").removeprefix("MGRS-")
@@ -118,9 +145,9 @@ def search(
     start: date = Query(..., description="Tanggal awal (YYYY-MM-DD, UTC)"),
     end: date = Query(..., description="Tanggal akhir (YYYY-MM-DD, UTC)"),
     bbox: str = Query(..., description="west,south,east,north (derajat)"),
-    sensor: str = Query("sentinel-2", pattern="^sentinel-[12]$"),
+    sensor: str = Query("sentinel-2", pattern="^(sentinel-[12]|landsat-8)$"),
     orbit: str | None = Query(None, pattern="^(ascending|descending)$", description="Hanya Sentinel-1"),
-    cloud: float | None = Query(None, ge=0, le=100, description="Tutupan awan maks. (%), hanya Sentinel-2"),
+    cloud: float | None = Query(None, ge=0, le=100, description="Tutupan awan maks. (%), Sentinel-2 & Landsat 8"),
 ):
     if start > end:
         raise HTTPException(400, "Tanggal awal harus sebelum atau sama dengan tanggal akhir.")
@@ -140,24 +167,31 @@ def search(
         "limit": PAGE_SIZE,
         "sortby": [{"field": "properties.datetime", "direction": "desc"}],
     }
+    query = {}
     if sensor == "sentinel-1" and orbit:
-        body["query"] = {"sat:orbit_state": {"eq": orbit}}
-    if sensor == "sentinel-2" and cloud is not None:
-        body["query"] = {"eo:cloud_cover": {"lte": cloud}}
+        query["sat:orbit_state"] = {"eq": orbit}
+    if sensor == "landsat-8":
+        query["platform"] = {"eq": "landsat-8"}  # koleksi juga berisi Landsat 4/5/7/9
+    if sensor != "sentinel-1" and cloud is not None:
+        query["eo:cloud_cover"] = {"lte": cloud}
+    if query:
+        body["query"] = query
 
+    client = pc_stac if sensor == "landsat-8" else stac
     features: list[dict] = []
     matched = None
     while body and len(features) < MAX_SCENES:
         try:
-            resp = stac.post("/search", json=body)
+            resp = client.post("/search", json=body)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            raise HTTPException(502, f"Gagal menghubungi katalog STAC Earth Search: {exc}")
+            raise HTTPException(502, f"Gagal menghubungi katalog STAC {CATALOG_NAMES[sensor]}: {exc}")
         page = resp.json()
         if matched is None:
             matched = page.get("numberMatched")
         features.extend(_slim_feature(sensor, item) for item in page.get("features", []))
-        # Halaman berikutnya: Earth Search mengirim body POST siap pakai di link rel=next.
+        # Halaman berikutnya: Earth Search dan Planetary Computer sama-sama mengirim body POST
+        # siap pakai di link rel=next.
         body = next((l.get("body") for l in page.get("links", []) if l.get("rel") == "next"), None)
 
     features = features[:MAX_SCENES]

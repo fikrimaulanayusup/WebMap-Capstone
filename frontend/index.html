@@ -6,7 +6,7 @@
   <title>Web-Map Tumpahan Minyak</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <nav id="nav" aria-label="Menu utama">
@@ -58,6 +58,7 @@
         <legend>Sensor</legend>
         <label><input type="radio" name="sensor" value="sentinel-2" checked><span>Sentinel-2<small>optik</small></span></label>
         <label><input type="radio" name="sensor" value="sentinel-1"><span>Sentinel-1<small>radar (SAR)</small></span></label>
+        <label><input type="radio" name="sensor" value="landsat-8"><span>Landsat 8<small>optik 30 m</small></span></label>
       </fieldset>
       <div class="row">
         <label>Dari
@@ -73,7 +74,7 @@
         <button type="button" data-days="14">14 hari</button>
         <button type="button" data-days="30">30 hari</button>
       </div>
-      <label data-sensor="sentinel-2">Tutupan awan maksimum <output id="cloud-out">50%</output>
+      <label data-sensor="sentinel-2 landsat-8">Tutupan awan maksimum <output id="cloud-out">50%</output>
         <input type="range" id="cloud" min="0" max="100" step="5" value="50">
       </label>
       <label data-sensor="sentinel-1" hidden>Arah orbit
@@ -254,7 +255,7 @@
 
   <main>
     <div id="map"></div>
-    <div id="loading" hidden>Memuat citra dari AWS…</div>
+    <div id="loading" hidden>Memuat citra…</div>
     <form id="geo-search" class="geo-search" role="search" autocomplete="off">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
       <input type="search" id="geo-q" placeholder="Cari lokasi atau koordinat (lat, lon)" aria-label="Cari lokasi"
@@ -264,6 +265,6 @@
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=20"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>

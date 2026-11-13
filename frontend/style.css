@@ -142,7 +142,7 @@ input[type="date"], select {
 }
 input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
 
-.segmented { display: flex; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.segmented { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .segmented legend { padding: 0 0 4px; font-size: 12.5px; color: var(--muted); }
 .segmented label { position: relative; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }

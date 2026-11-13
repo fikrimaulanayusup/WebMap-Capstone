@@ -1,6 +1,10 @@
 const $ = (id) => document.getElementById(id);
 
-const SENSOR_LABELS = { "sentinel-1": "Sentinel-1", "sentinel-2": "Sentinel-2" };
+const SENSOR_LABELS = { "sentinel-1": "Sentinel-1", "sentinel-2": "Sentinel-2", "landsat-8": "Landsat 8" };
+// Katalog sumber tiap sensor (untuk pesan status).
+const CATALOG_LABELS = { "sentinel-1": "AWS", "sentinel-2": "AWS", "landsat-8": "Planetary Computer" };
+const isOptical = (sensor) => sensor !== "sentinel-1";
+const platformLabel = (platform) => (platform || "").replace("sentinel-", "S").replace("landsat-", "L").toUpperCase();
 
 // ---------- Peta ----------
 // Tampilan awal: perairan Kepulauan Riau / Selat Singapura, jalur pelayaran padat.
@@ -123,7 +127,7 @@ document.querySelectorAll('input[name="sensor"]').forEach((radio) =>
   radio.addEventListener("change", () => {
     // Awan hanya relevan untuk optik, arah orbit hanya untuk radar.
     document.querySelectorAll("#filters [data-sensor]").forEach((field) => {
-      field.hidden = field.dataset.sensor !== formSensor();
+      field.hidden = !field.dataset.sensor.split(" ").includes(formSensor());
     });
   })
 );
@@ -139,7 +143,7 @@ const shortDate = (day) =>
 
 function filterSummary(f) {
   const dates = f.start === f.end ? shortDate(f.start) : `${shortDate(f.start)} – ${shortDate(f.end)}`;
-  const extra = f.sensor === "sentinel-2"
+  const extra = isOptical(f.sensor)
     ? `awan ≤ ${f.cloud}%`
     : { "": "semua orbit", ascending: "orbit naik", descending: "orbit turun" }[f.orbit];
   return `${dates} · ${extra}`;
@@ -198,12 +202,12 @@ async function search() {
     end: filter.end,
     bbox: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(","),
   });
-  if (filter.sensor === "sentinel-2") params.set("cloud", filter.cloud);
+  if (isOptical(filter.sensor)) params.set("cloud", filter.cloud);
   else if (filter.orbit) params.set("orbit", filter.orbit);
 
   const seq = ++searchSeq;
   $("apply-btn").disabled = $("search-here").disabled = true;
-  setStatus(`Mencari citra ${label} di katalog AWS…`);
+  setStatus(`Mencari citra ${label} di katalog ${CATALOG_LABELS[filter.sensor]}…`);
 
   try {
     const resp = await fetch(`/api/search?${params}`);
@@ -215,7 +219,7 @@ async function search() {
     resultSensor = filter.sensor;
     renderResults(data.features);
     if (data.returned === 0) {
-      const tip = filter.sensor === "sentinel-2" ? " Coba naikkan batas tutupan awan atau perpanjang rentang tanggal." : "";
+      const tip = isOptical(filter.sensor) ? " Coba naikkan batas tutupan awan atau perpanjang rentang tanggal." : "";
       setStatus(`Tidak ada citra ${label} pada rentang tanggal dan area ini.${tip}`);
     } else if (data.matched > data.returned) {
       setStatus(`${data.returned} citra terbaru ditampilkan dari ${data.matched} yang cocok. Persempit tanggal atau area.`);
@@ -243,8 +247,8 @@ const dayLabel = (day) =>
   });
 
 function sceneMeta(p) {
-  const platform = (p.platform || "").replace("sentinel-", "S").toUpperCase();
-  if (resultSensor === "sentinel-2") {
+  const platform = platformLabel(p.platform);
+  if (isOptical(resultSensor)) {
     const cloud = p.cloud_cover == null ? "" : `awan ${Math.round(p.cloud_cover)}%`;
     return [platform, p.tile, cloud].filter(Boolean).join(" · ");
   }
@@ -329,6 +333,8 @@ function renderResults(features) {
 // ---------- Layer citra ----------
 // URL tile sebuah scene, atau null jika scene tidak punya aset yang bisa ditampilkan.
 function tileUrlFor(sensor, feature) {
+  // Landsat 8: tile dirender langsung oleh Microsoft Planetary Computer (URL dari backend).
+  if (sensor === "landsat-8") return feature.properties.tiles || null;
   const assets = feature.properties.assets;
   const base = `/api/tiles/${sensor}/${feature.id}`;
   if (sensor === "sentinel-2") {
@@ -342,15 +348,26 @@ function tileUrlFor(sensor, feature) {
 
 const tileUrl = (scene) => tileUrlFor(resultSensor, scene.feature);
 
-function sceneTileLayer(url, bounds) {
+// Resolusi & atribusi per sensor.
+const TILE_SOURCES = {
+  sentinel: {
+    maxNativeZoom: 14, // piksel 10 m, baik Sentinel-1 GRD maupun Sentinel-2
+    attribution: "Citra Sentinel &copy; Copernicus/ESA, via AWS Open Data",
+  },
+  "landsat-8": {
+    maxNativeZoom: 13, // piksel 30 m
+    attribution: "Citra Landsat 8 &copy; USGS, via Microsoft Planetary Computer",
+  },
+};
+
+function sceneTileLayer(url, bounds, sensor) {
   const layer = L.tileLayer(url, {
     bounds,
     minZoom: 4,
-    maxNativeZoom: 14, // piksel 10 m, baik Sentinel-1 GRD maupun Sentinel-2
     maxZoom: 18,
     opacity: $("opacity").value / 100,
     zIndex: 10,
-    attribution: "Citra Sentinel &copy; Copernicus/ESA, via AWS Open Data",
+    ...(TILE_SOURCES[sensor] || TILE_SOURCES.sentinel),
   });
   // Dilacak per tile: status isLoading() milik Leaflet bisa macet saat tile dibatalkan oleh zoom.
   layer.on("tileloadstart", (e) => { pendingTiles.add(e.tile); updateLoading(); });
@@ -369,7 +386,7 @@ function setSceneVisible(id, visible) {
   if (visible) {
     const url = tileUrl(scene);
     if (!url) return;
-    const layer = sceneTileLayer(url, scene.footprint.getBounds());
+    const layer = sceneTileLayer(url, scene.footprint.getBounds(), resultSensor);
     scene.tileLayer = layer;
     layer.addTo(map);
   } else {
@@ -441,8 +458,8 @@ const SCHEMES = {
     sizes: [[10, "~5 menit"], [20, "~15 menit"], [40, "~45 menit"]],
     km: 20,
     run: "Klasifikasi dengan MariNeXt",
-    hint: "Yang dianalisis: bagian citra di dalam kotak. Prosesnya unduh L1C → ACOLITE → MariNeXt; " +
-      "lama proses mengikuti ukuran kotak.",
+    hint: "Yang dianalisis: bagian citra di dalam kotak. Prosesnya unduh L1C → ACOLITE → MariNeXt → " +
+      "masker awan (L2A); lama proses mengikuti ukuran kotak.",
     classHead: "Kelas",
   },
 };
@@ -844,7 +861,7 @@ function selectDetectScene(feature) {
   detect.selected = feature;
   if (feature) {
     const url = tileUrlFor(detect.sensor, feature);
-    if (url) detect.layer = sceneTileLayer(url, L.geoJSON(feature).getBounds()).addTo(map);
+    if (url) detect.layer = sceneTileLayer(url, L.geoJSON(feature).getBounds(), detect.sensor).addTo(map);
     if (detect.box && map.hasLayer(detect.box)) detect.box.bringToFront();
     if (detectLayer && map.hasLayer(detectLayer)) detectLayer.bringToFront();
   }
@@ -1019,10 +1036,13 @@ async function runJob(sensor, scene, bbox, maxKm) {
 
 function showResult(r, elapsed, scheme) {
   const oil = r.oil.features;
+  // MariNeXt: awan & bayangan awan dimasker; bila masker gagal, pengguna perlu tahu.
+  const cloudWarning = r.cloud && !r.cloud.applied ? ` Masker awan tidak diterapkan: ${r.cloud.error}` : "";
   setDetectStatus(
-    oil.length
+    (oil.length
       ? `Oil Spill terdeteksi: ${num(r.oil_area_km2, 3)} km² dalam ${oil.length} petak.`
-      : "Tidak ada piksel Oil Spill di area ini."
+      : "Tidak ada piksel Oil Spill di area ini.") + cloudWarning,
+    Boolean(cloudWarning)
   );
 
   const stats = [
@@ -1034,6 +1054,11 @@ function showResult(r, elapsed, scheme) {
     ["Waktu proses", duration(elapsed)],
   ];
   if (r.tiles) stats.splice(2, 0, ["Potongan U-Net", String(r.tiles)]);
+  if (r.cloud) {
+    stats.splice(-1, 0, r.cloud.applied
+      ? ["Awan & bayangan", `${num(r.cloud.area_km2, 2)} km² (Oil Spill dibuang ${num(r.cloud.oil_removed_km2, 3)} km²)`]
+      : ["Masker awan", "tidak diterapkan"]);
+  }
   // Nama produk panjang: satu baris penuh, dipecah di garis bawah agar tetap di dalam kotak.
   const product = el("div", "wide");
   const productName = el("dd", "product");
@@ -1076,7 +1101,8 @@ function showResult(r, elapsed, scheme) {
     ["classes.tif", "Peta kelas", "GeoTIFF"],
     ["oil_spill_prob.tif", "Probabilitas Oil Spill", "GeoTIFF"],
     ["oil_spill.geojson", "Poligon Oil Spill", "GeoJSON"],
-  ].map(([file, label, type]) => {
+    ["cloud_mask.tif", "Masker awan", "GeoTIFF"],
+  ].filter(([file]) => r.downloads[file]).map(([file, label, type]) => {
     const a = el("a", "dl");
     a.href = r.downloads[file];
     a.download = "";

@@ -91,10 +91,19 @@ Alur satu klasifikasi (berjalan di latar belakang; panel menampilkan tahap dan w
    dijalankan dengan setelan yang sama seperti data latih MADOS: `s2_target_res=10`,
    `output_rhorc=True`, `l2r_export_geotiff=True`.
 4. **`marinext/predict.py`** (env conda `mados`) dijalankan apa adanya pada 11 band rhorc.
-5. **Hasil**: peta 15 kelas (overlay), tabel luas per kelas, poligon tiap petak Oil Spill
+5. **Masker awan** (`backend/cloud_runner.py`, env `mados`): 13 band produk **L2A** dari
+   akuisisi yang sama (B01–B12 tanpa B08, AOT, WVP; koleksi `sentinel-2-c1-l2a`) diambil
+   pada grid hasil MariNeXt, lalu dideteksi dengan U-Net MobileNetV2 CloudSEN12 (skrip
+   `cloud_detector.py` dari dosen pembimbing; model dari earthnet-minicuber). Awan tebal, awan
+   tipis, dan bayangan awan, diperlebar 3 piksel (30 m), menjadi kelas ke-16 **Awan / bayangan
+   awan**, sehingga tidak pernah terhitung sebagai Oil Spill. Offset reflektansi L2A
+   baseline ≥ 04.00 (−1000) dibuang dulu karena model dilatih pada skala lama. Bila L2A tidak
+   ada atau deteksi gagal, hasil tetap disusun tanpa masker dan panel menampilkan peringatan.
+6. **Hasil**: peta 15 kelas + awan (overlay), tabel luas per kelas, poligon tiap petak Oil Spill
    (luas, probabilitas rata-rata/maksimum), dan unduhan `classes.tif`,
-   `oil_spill_prob.tif`, `oil_spill.geojson`. Daratan (Copernicus DEM) dibuang dari hasil
-   karena model hanya dilatih di permukaan laut.
+   `oil_spill_prob.tif`, `oil_spill.geojson`, `cloud_mask.tif` (0 cerah, 1 awan tebal, 2 awan
+   tipis, 3 bayangan awan). Daratan (Copernicus DEM) dibuang dari hasil karena model hanya
+   dilatih di permukaan laut.
 
 Waktu (CPU laptop, langkah 60): ~5 menit untuk kotak 10 km, ~15 menit untuk 20 km, dan ~45 menit
 untuk 40 km (butuh ~2 GB RAM bebas). Satu tile Sentinel-2 penuh (110 km) tidak
@@ -151,6 +160,12 @@ Persyaratan di komputer: conda dengan env `acolite` (dibuat dari
 mengunduhnya sendiri dari GitHub (butuh internet, beberapa menit). Bila LUT sudah ada di instalasi
 lain, cukup tautkan: `cmd /c mklink /J vendor\acolite\data\LUT <folder LUT yang ada>`.
 
+Masker awan butuh `segmentation-models-pytorch` di env `mados` (versi 0.3.3 tidak mengubah
+torch 1.11 yang dipakai MariNeXt):
+`conda run -n mados python -m pip install segmentation-models-pytorch==0.3.3 six`.
+Bobot detektor (`models\cloud_mobilenetv2_l2a.pth`, 25 MB) diunduh otomatis saat pertama
+dipakai; lokasinya bisa diganti lewat `MARINEXT_CLOUD_MODEL`.
+
 Lokasi bawaan tidak terikat ke `C:\`:
 - kode MADOS dan ACOLITE dibaca dari `vendor\mados` dan `vendor\acolite` di folder proyek, jadi
   cukup clone repo ini;
@@ -171,8 +186,8 @@ kating, dilatih ulang dengan **Keras 3** (Kaggle, Keras 3.13.2, 100 epoch, Adam)
 *Oil Spill Detection Dataset* (Krestenitis dkk.), 5 kelas: laut, tumpahan minyak, look-alike,
 kapal, darat. Kodenya di `backend/sar_unet.py` (alur) dan `backend/unet_runner.py` (prediksi,
 dijalankan di env conda `unet3`: Python 3.12, `tensorflow` 2.21.0, Keras 3.15.1, `numpy` 2.5,
-`opencv-python-headless` 5.0). Model ini **belum dievaluasi** pada 110 gambar uji; angka evaluasi
-di bawah adalah milik model kating.
+`opencv-python-headless` 5.0). Evaluasinya pada 110 gambar uji ada di bawah (*Evaluasi model
+bawaan*), terpisah dari angka evaluasi model kating.
 
 Model kating asli (`C:\Akademik\Capstone\WEBGIS KATING\webgis\models\saved_unetmodel_tf`, SavedModel
 Keras 2.10) masih bisa dipakai dengan `SAR_UNET_MODEL=<folder itu>` dan `SAR_UNET_ENV=unet`
@@ -206,6 +221,26 @@ Gambar latih dataset adalah potongan Sentinel-1 1250 × 650 piksel, oleh kating 
    Rentang lebih lebar menghilangkan "darat" palsu dari target terang, tetapi menggelapkan semua
    piksel: daratan asli berkurang dan look-alike bertambah. Min–max seluruh kotak memberi 5,1%
    darat palsu di Teluk Meksiko dan pulau Batam hampir hilang (0,01%).
+
+   **Analisis histogram dataset latih** (1112 gambar; skrip dan hasil di
+   `D:\Capstone\Code_train\analisis_normalisasi`). Pembanding: 21 kotak laut 20 km dan 12 kotak
+   darat di perairan/pesisir Eropa (wilayah sumber dataset), diproses dengan pipeline ini.
+   - Dataset **tidak** dinormalisasi min–max atau persentil per gambar: 88% gambar tanpa kapal dan
+     darat tetap punya piksel jenuh 255 (median 6.554 piksel, berupa speckle laut), porsi jenuh
+     bervariasi 0–5%, dan median laut menyebar 61–197 antar-gambar. Polanya cocok dengan
+     transformasi linear rentang tetap (atau tetap per scene) + clip.
+   - Rentang dataset diperkirakan **sekitar −32..−9 dB** (~10,8 tingkat abu-abu per dB), dari median
+     laut (−19,9 dB ↔ abu-abu 134) dan darat (−11,0 dB ↔ 230). Dengan −35..0 (7,3 tingkat/dB),
+     darat −11 dB hanya menjadi 175 dan laut ~110: input WebGIS lebih gelap dan kontrasnya lebih
+     rendah daripada data latih. Perkiraan ini mengandaikan kondisi laut/darat dataset (kejadian
+     EMSA 2015–2017) mirip sampel 2026; belum diuji pada kejadian tumpahan nyata, jadi `DB_RANGE`
+     belum diubah.
+   - Tekstur laut dataset jauh lebih kasar: std lokal 34 tingkat abu-abu, sedangkan keluaran
+     pipeline ini 5 (median 7 × 7) atau 19 (tanpa median). Selisih ini tidak bisa ditutup dengan
+     rentang dB saja; notebook training v2 menyediakan augmentasi `AUG_DOMAIN` untuk itu.
+   - Laut sangat tenang bisa jatuh di bawah −35 dB setelah derau termal dikurangkan (Laut Tyrrhenia
+     17 Okt 2026: median −40 dB), sehingga menjadi hitam seperti minyak. Batas bawah
+     `max(DN² − N, 10⁻⁶)` dipasang sebelum dibagi A²σ, jadi setara sekitar −115 dB, bukan −60 dB.
 3. Dipotong per ~12,5 × 6,5 km (1250 × 650 piksel 10 m) dengan tumpang tindih 50%; potongan
    yang datanya < 20% dilewati. Tiap potongan diperkecil ke 256 × 256 (`cv2.resize`), disalin
    ke 3 kanal, dibagi 255.
@@ -214,8 +249,10 @@ Gambar latih dataset adalah potongan Sentinel-1 1250 × 650 piksel, oleh kating 
    **Penyesuaian saat prediksi** (`unet_runner.py`, pilihan *Mode prediksi* di panel):
    - *akurat*: tiap potongan juga diprediksi pada zoom-out 2× (jendela 2× lebih besar
      berisi konteks sekitarnya) dan zoom-in 2× (4 sub-potongan), masing-masing dalam 4 varian
-     flip; 24 prediksi per potongan dirata-rata. Dasarnya: data latih dibuat multi-skala
-     (zoom 1–3) dan diaugmentasi flip (Krestenitis dkk., 2019).
+     flip; 24 prediksi per potongan dirata-rata. Dasarnya: gambar dataset dibuat multi-skala
+     (zoom 1–3), dan paper melatih modelnya dengan augmentasi flip (Krestenitis dkk., 2019).
+     Notebook training model bawaan tidak memakai augmentasi; TTA flip tetap terbukti menaikkan
+     IoU minyak (tabel evaluasi di bawah).
    - *standar* (bawaan): 4 varian flip saja.
    - *cepat*: tanpa TTA, satu prediksi per potongan (seperti kating); IoU minyak sama baiknya
      (39,6%), kelas lain sedikit lebih rendah.
@@ -229,6 +266,62 @@ Gambar latih dataset adalah potongan Sentinel-1 1250 × 650 piksel, oleh kating 
 Urutan kelas keluaran (0 laut, 1 minyak, 2 look-alike, 3 kapal, 4 darat) diperiksa pada data
 uji dataset; peta warna di `usetrainedmodel.py` kating tidak sesuai dengan urutan ini, yang di
 `app.py` sesuai.
+
+**Evaluasi model bawaan (`unet_oilspill.keras`) pada 110 gambar uji dataset.** Skrip:
+`D:\Capstone\Code_train\evaluate_unet.py` (env `unet3`). Praproses gambar sama dengan notebook
+training (resize 256 × 256, ÷255); probabilitas diperbesar ke 1250 × 650 lalu dibandingkan dengan
+label asli tanpa di-resize; tanpa morfologi. Angka dalam %:
+
+| Kelas | IoU tanpa TTA | IoU flip (*standar*) | Precision flip | Recall flip | F1 flip |
+|---|---|---|---|---|---|
+| Laut | 95,16 | 95,63 | 96,48 | 99,09 | 97,77 |
+| Tumpahan minyak | 36,50 | **39,64** | 79,00 | 44,30 | 56,77 |
+| Look-alike | 39,18 | 39,49 | 75,93 | 45,14 | 56,62 |
+| Kapal | 8,53 | 10,81 | 60,49 | 11,63 | 19,51 |
+| Darat | 87,39 | 93,09 | 94,47 | 98,46 | 96,42 |
+| **mIoU** | 53,35 | 55,73 | | | |
+
+TTA flip menaikkan IoU minyak 36,5% → 39,6% dan presisinya 70% → 79%; recall minyak tetap ~44%
+(lebih dari separuh piksel minyak terlewat). Mode *akurat* (multi-skala) belum dievaluasi dengan
+skrip ini. F1 berbobot (95,1% dengan flip) didominasi kelas laut (~90% piksel), jadi tidak
+menggambarkan kemampuan mendeteksi minyak.
+
+Notebook training me-resize mask label secara bilinear lalu mencocokkan warna persis; piksel tepi
+berwarna campuran jatuh ke kelas laut. Pada data uji, cara itu menghilangkan 6,4% piksel label
+minyak dan 24% piksel label kapal, dan sedikit melebih-lebihkan skor (tanpa TTA: IoU minyak 36,9%
+vs 36,5%, kapal 11,4% vs 8,5%). Skrip di atas melaporkan ketiga protokol (`notebook`, `nearest`,
+`asli`); angka tabel memakai `asli`. Protokol evaluasi model kating di bawah tidak diketahui, jadi
+angkanya tidak bisa dibandingkan langsung.
+
+**Perbandingan dengan paper dataset** (Krestenitis dkk., 2019, Tabel 4). Paper mengevaluasi tanpa
+augmentasi dan pada ukuran gambar asli (bagian 3.1), jadi pembandingnya adalah kolom *tanpa TTA*
+di atas. IoU dalam %:
+
+| Kelas | Paper U-Net (ResNet-101) | Paper DeepLabv3+ | Model bawaan |
+|---|---|---|---|
+| Laut | 93,90 | 96,43 | 95,16 |
+| Tumpahan minyak | 53,79 | 53,38 | 36,50 |
+| Look-alike | 39,55 | 55,40 | 39,18 |
+| Kapal | 44,93 | 27,63 | 8,53 |
+| Darat | 92,68 | 92,44 | 87,39 |
+| **mIoU** | 64,97 | 65,06 | 53,35 |
+
+Laut dan look-alike setara dengan U-Net paper; selisih terbesar ada pada minyak (−17 poin) dan
+kapal (−36 poin), dua kelas yang objeknya kecil/tipis. Perbedaan cara training:
+
+| | Paper (U-Net) | Notebook training model bawaan |
+|---|---|---|
+| Arsitektur | U-Net, backbone ResNet-101, 51,5 juta parameter | U-Net polos 16–256 filter, 1,94 juta parameter |
+| Input | potongan acak ~320 × 320 pada resolusi asli | seluruh gambar diperkecil ke 256 × 256 (horizontal ~4,9×) |
+| Augmentasi | resize acak 0,5–1,5×, flip horizontal/vertikal, crop acak | tidak ada |
+| Optimizer | Adam, LR 5×10⁻⁵, cross-entropy | Adam (LR bawaan 10⁻³), cross-entropy |
+| Epoch / batch | hingga 600 / 12 | 100 / 16 |
+
+Yang paling mungkin menjelaskan selisih kapal dan minyak adalah pengecilan ke 256 × 256: kapal
+selebar 10–20 piksel tinggal 2–4 piksel. Notebook training baru
+`D:\Capstone\Code_train\oil-spill-unet-v2.ipynb` mengikuti cara paper (potongan resolusi asli,
+augmentasi, mask nearest) dengan arsitektur yang sama; model hasilnya butuh inferensi tanpa resize
+256 (lihat catatan di akhir notebook) dan dievaluasi dengan `evaluate_unet.py --input native`.
 
 **Evaluasi model kating pada 110 gambar uji dataset** (praproses kating):
 
@@ -268,13 +361,15 @@ diunduh dari AWS.
 - **MariNeXt**: hasil hanya sebaik model dan data latihnya (MADOS). Awan tidak punya kelas di
   MADOS dan tidak dimasker, jadi area berawan bisa diberi kelas laut apa pun. Garis batas jendela
   prediksi (lihat catatan model) memengaruhi luas.
-- **U-Net SAR**: IoU minyak model kating pada data uji hanya ~40% (model Keras 3 bawaan belum
-  dievaluasi), dan belum divalidasi pada kejadian
+- **U-Net SAR**: IoU minyak model bawaan pada data uji hanya 39,6% (mode standar; 36,5% tanpa TTA)
+  dengan recall ~44%, dan belum divalidasi pada kejadian
   tumpahan nyata di citra AWS; hasilnya kandidat untuk diperiksa visual. Menurut paper dataset
   (Krestenitis dkk., 2019, *Remote Sensing* 11(15):1762, https://doi.org/10.3390/rs11151762),
   gambar latih dibuat dari VV terkalibrasi, median 7 × 7, transformasi linear dB → kecerahan,
   dan di-*rescale* ke 1250 × 650 pada beberapa tingkat zoom (multi-skala). **Rentang dB tidak
-  disebutkan** (−35..0 dB di sini mengikuti ekspor SNAP) dan **ukuran piksel latih tidak tetap**,
+  disebutkan** (−35..0 dB di sini mengikuti ekspor SNAP; analisis histogram memperkirakan dataset
+  memakai sekitar −32..−9 dB dan teksturnya jauh lebih kasar daripada input WebGIS, lihat langkah 2
+  di atas) dan **ukuran piksel latih tidak tetap**,
   sehingga potongan 1250 × 650 piksel 10 m adalah pilihan, bukan nilai pasti. Look-alike SAR yang
   paling sering: area angin lemah, perairan terlindung di balik pulau, sel hujan, *upwelling*,
   dan lapisan biogenik.

@@ -43,6 +43,7 @@ RESULT_FILES = {
     "classes.tif": "image/tiff",
     "oil_spill_prob.tif": "image/tiff",
     "oil_spill.geojson": "application/geo+json",
+    "cloud_mask.tif": "image/tiff",
 }
 
 _jobs: dict[str, dict] = {}

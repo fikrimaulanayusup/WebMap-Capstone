@@ -11,7 +11,12 @@ Alur satu pekerjaan (job), dijalankan di thread latar belakang:
 4. Jalankan MariNeXt (env conda `mados`, model 2, sama dengan WebGIS kating) pada 11 band
    rhorc lewat `marinext_runner.py`: `predict.py` MADOS diimpor apa adanya, hanya penggabungan
    jendelanya diganti: langkah 60, bobot spline + padding cermin, agar tidak muncul pola kisi.
-5. Ubah `classes.tif` menjadi overlay peta, statistik luas per kelas, dan poligon Oil Spill.
+5. Masker awan: 13 band produk L2A dari akuisisi yang sama diambil pada grid `classes.tif`,
+   lalu dideteksi dengan U-Net MobileNetV2 CloudSEN12 (`cloud_runner.py`, env `mados`).
+   Awan tebal, awan tipis, dan bayangan awan (diperlebar CLOUD_BUFFER_PX) dijadikan kelas
+   "Awan / bayangan awan", sehingga tidak ikut terhitung sebagai Oil Spill. Bila gagal (mis.
+   L2A tidak ada), hasil tetap disusun tanpa masker dan alasannya dilaporkan ke panel.
+6. Ubah `classes.tif` menjadi overlay peta, statistik luas per kelas, dan poligon Oil Spill.
 
 Validasi (Karawang, 12 Sep 2019, T48MYU): rhorc identik rata-ratanya dengan ACOLITE
 pengguna (bias 0,0000), luas Oil Spill 3,79 vs 3,84 km^2, IoU Oil Spill 88,7%. Selisihnya
@@ -31,11 +36,15 @@ import httpx
 import numpy as np
 import rasterio
 import rasterio.warp
+from rasterio.enums import Resampling
+from rasterio.vrt import WarpedVRT
 from rasterio.windows import Window
+from scipy import ndimage
 
 from . import jobs
 from .geo import DetectionError, analysis_box, land_mask, lonlat_grid, raster_grid
 from .results import summarise
+from .sources import locate, open_raster
 
 # ---------------------------------------------------------------- Lokasi (bisa diubah lewat env var)
 # Bawaan di folder `vendor` proyek: salinan apa adanya dari bagian MADOS (predict.py, mmseg, utils)
@@ -75,8 +84,25 @@ STAGES = [
     "Mengunduh 13 band L1C untuk area analisis",
     "ACOLITE: menghitung reflektansi rhorc",
     "MariNeXt: segmentasi 15 kelas MADOS",
+    "Masker awan: deteksi awan pada Sentinel-2 L2A",
     "Menyusun hasil",
 ]
+
+# ---------------------------------------------------------------- Masker awan (CloudSEN12)
+CLOUD_RUNNER = Path(__file__).resolve().parent / "cloud_runner.py"
+# Bobot diunduh otomatis oleh cloud_runner.py saat pertama kali dipakai (dari server MPI-BGC Jena).
+CLOUD_MODEL = Path(os.environ.get(
+    "MARINEXT_CLOUD_MODEL", Path(__file__).resolve().parents[1] / "models" / "cloud_mobilenetv2_l2a.pth"))
+L2A_COLLECTION = "sentinel-2-c1-l2a"
+# Band masukan detektor awan (urutan CloudDetector.bands) dan nama asetnya di STAC Earth Search.
+CLOUD_BANDS = [("B01", "coastal"), ("B02", "blue"), ("B03", "green"), ("B04", "red"),
+               ("B05", "rededge1"), ("B06", "rededge2"), ("B07", "rededge3"), ("B8A", "nir08"),
+               ("B09", "nir09"), ("B11", "swir16"), ("B12", "swir22"), ("AOT", "aot"), ("WVP", "wvp")]
+# Kelas detektor yang dimasker: 1 awan tebal, 2 awan tipis, 3 bayangan awan. Bayangan awan dan
+# tepi awan tipis yang gelap paling sering tertukar dengan Oil Spill.
+CLOUD_CLASSES = (1, 2, 3)
+# Masker diperlebar beberapa piksel (10 m) karena tepi awan/bayangan sering lolos dari detektor.
+CLOUD_BUFFER_PX = 3
 GDAL_JP2 = dict(
     GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
     CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".jp2",
@@ -101,7 +127,10 @@ CLASSES = [
     ("Oil Platform", "Anjungan minyak", "#696969"),
     ("Jellyfish", "Ubur-ubur", "#ff69b4"),
     ("Sea snot", "Sea snot", "#ffff00"),
+    # Bukan kelas MADOS: ditambahkan oleh masker awan (lihat _cloud_mask).
+    ("Cloud / Cloud Shadow", "Awan / bayangan awan", "#bfbfbf"),
 ]
+CLOUD = len(CLASSES)
 
 http = httpx.Client(timeout=120)
 
@@ -132,7 +161,14 @@ def _run(job: jobs.Job, item_l2a: dict, aoi) -> dict:
     job.stage(3)
     pred = _run_predict(acolite_out, work)
     job.stage(4)
-    result = _summarise(pred, job)
+    cloud = cloud_product = cloud_error = None
+    try:
+        cloud, cloud_product = _cloud_mask(item_l2a, pred / "classes.tif", work)
+    except Exception as exc:  # tanpa masker awan hasil tetap disusun, alasannya dilaporkan
+        cloud_error = str(exc) if isinstance(exc, (DetectionError, RuntimeError)) else f"{type(exc).__name__}: {exc}"
+    job.stage(5)
+    result = _summarise(pred, job, cloud)
+    result["cloud"].update(product=cloud_product, error=cloud_error)
     result.update(model="MariNeXt (model 2)", scene_id=item_l2a["id"], product=product,
                   aoi=[round(v, 5) for v in aoi])
     # Simpan hanya rhorc (input model) dan hasil; potongan L1C dan produk ACOLITE lain besar.
@@ -301,8 +337,74 @@ def _run_predict(acolite_out: Path, work: Path) -> Path:
     return pred
 
 
-# ---------------------------------------------------------------- 5. Hasil
-def _summarise(pred: Path, job: jobs.Job) -> dict:
+# ---------------------------------------------------------------- 5. Masker awan
+def _find_l2a(item: dict) -> dict:
+    """Item STAC L2A (Collection 1) dari akuisisi yang sama dengan `item` (L2A atau L1C)."""
+    if item.get("collection") == L2A_COLLECTION:
+        return item
+    tile = re.search(r"_T?(\d{2}[A-Z]{3})_", item["id"]).group(1)
+    when = item["properties"]["datetime"][:10]
+    resp = http.post(f"{STAC_API}/search", json={
+        "collections": [L2A_COLLECTION],
+        "bbox": item["bbox"],
+        "datetime": f"{when}T00:00:00Z/{when}T23:59:59Z",
+        "limit": 50,
+    })
+    resp.raise_for_status()
+    for found in resp.json().get("features", []):
+        if f"_T{tile}_" in found["id"]:
+            return found
+    raise DetectionError(f"Produk L2A untuk tile {tile} tanggal {when} tidak ditemukan; masker awan dilewati.")
+
+
+def _l2a_band(asset: dict, grid: dict) -> np.ndarray:
+    """Satu band L2A, di-resample (bilinear) ke grid hasil MariNeXt.
+
+    Reflektansi dikembalikan ke skala lama (DN 0..10000, tanpa offset): sejak baseline 04.00
+    DN = (reflektansi + 0,1) x 10000, sedangkan data latih detektor awan tanpa offset itu.
+    AOT/WVP (offset 0) tetap DN mentah, sama dengan cloud_detector.py.
+    """
+    location = locate(asset.get("href", ""))
+    if location is None:
+        raise DetectionError(f"Aset L2A tidak dikenal: {asset.get('href')}")
+    bands = (asset.get("raster:bands") or [{}])[0]
+    scale, offset = bands.get("scale") or 1.0, bands.get("offset") or 0.0
+    with open_raster(location) as src, WarpedVRT(
+            src, crs=grid["crs"], transform=grid["transform"], width=grid["width"], height=grid["height"],
+            resampling=Resampling.bilinear, src_nodata=0, nodata=0) as vrt:
+        dn = vrt.read(1).astype("float32")
+    valid = dn > 0
+    dn = np.where(valid, np.maximum(dn + offset / scale, 0), 0)
+    return dn.astype("float32")
+
+
+def _cloud_mask(item: dict, classes_tif: Path, work: Path) -> tuple[np.ndarray, str]:
+    """Masker awan (0 cerah, 1 tebal, 2 tipis, 3 bayangan, 255 tanpa data) pada grid classes.tif."""
+    l2a = _find_l2a(item)
+    missing = [name for _, name in CLOUD_BANDS if name not in l2a.get("assets", {})]
+    if missing:
+        raise DetectionError(f"Produk L2A {l2a['id']} tidak punya aset {', '.join(missing)}.")
+    with rasterio.open(classes_tif) as ds:
+        grid = {"crs": ds.crs, "transform": ds.transform, "width": ds.width, "height": ds.height}
+    out = work / "cloud"
+    out.mkdir(parents=True, exist_ok=True)
+    stack_tif, mask_tif = out / "l2a_stack.tif", out / "cloud_mask.tif"
+    profile = dict(driver="GTiff", count=len(CLOUD_BANDS), dtype="float32", compress="deflate", **grid)
+    with rasterio.open(stack_tif, "w", **profile) as dst:
+        for index, (band, name) in enumerate(CLOUD_BANDS, start=1):
+            dst.write(_l2a_band(l2a["assets"][name], grid), index)
+            dst.set_band_description(index, band)
+    jobs.conda_run(MADOS_ENV, [str(CLOUD_RUNNER), "--input", str(stack_tif), "--model", str(CLOUD_MODEL),
+                               "--output", str(mask_tif)],
+                   out, work / "cloud.log", timeout=30 * 60)
+    with rasterio.open(mask_tif) as ds:
+        mask = ds.read(1)
+    stack_tif.unlink(missing_ok=True)  # besar dan tidak dipakai lagi
+    return mask, l2a["id"]
+
+
+# ---------------------------------------------------------------- 6. Hasil
+def _summarise(pred: Path, job: jobs.Job, cloud: np.ndarray | None = None) -> dict:
     with rasterio.open(pred / "classes.tif") as ds:
         classes = ds.read(1)
         profile = {"crs": ds.crs, "transform": ds.transform, "width": ds.width, "height": ds.height}
@@ -313,4 +415,27 @@ def _summarise(pred: Path, job: jobs.Job) -> dict:
     land = land_mask(lon, lat)
     classes[land] = 0
     prob[land] = np.nan
-    return summarise(classes, prob, profile, job.dir / "result", job.id, CLASSES, OIL_SPILL)
+
+    # Awan dan bayangannya menjadi kelas tersendiri, jadi tidak pernah dihitung sebagai Oil Spill.
+    pixel_km2 = abs(profile["transform"].a * profile["transform"].e) / 1e6
+    cloud_info = {"applied": cloud is not None, "buffer_m": CLOUD_BUFFER_PX * abs(profile["transform"].a)}
+    if cloud is not None:
+        covered = np.isin(cloud, CLOUD_CLASSES)
+        if CLOUD_BUFFER_PX:
+            covered = ndimage.binary_dilation(covered, iterations=CLOUD_BUFFER_PX)
+        covered &= classes > 0  # hanya laut yang punya hasil MariNeXt
+        cloud_info.update(
+            area_km2=round(float(covered.sum()) * pixel_km2, 4),
+            oil_removed_km2=round(float((covered & (classes == OIL_SPILL)).sum()) * pixel_km2, 4),
+        )
+        classes[covered] = CLOUD
+        prob[covered] = np.nan
+
+    result = summarise(classes, prob, profile, job.dir / "result", job.id, CLASSES, OIL_SPILL)
+    if cloud is not None:  # masker mentah 0..3 untuk diperiksa di GIS
+        out_profile = dict(profile, driver="GTiff", count=1, dtype="uint8", nodata=255, compress="deflate")
+        with rasterio.open(job.dir / "result" / "cloud_mask.tif", "w", **out_profile) as dst:
+            dst.write(cloud, 1)
+        result["downloads"]["cloud_mask.tif"] = f"{jobs.files_url(job.id)}/cloud_mask.tif"
+    result["cloud"] = cloud_info
+    return result
