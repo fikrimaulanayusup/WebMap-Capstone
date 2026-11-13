@@ -31,46 +31,19 @@ timeout /t 2 >nul
 goto MENU
 
 :FIND_PYTHON
-set PYTHON_CMD=
-py -3.10 --version >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=py -3.10"
-    exit /b 0
-)
+set "PYTHON_EXE="
+set "PYTHON_ARGS="
 
-py -3.11 --version >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=py -3.11"
-    exit /b 0
-)
-
-py -3.12 --version >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=py -3.12"
-    exit /b 0
-)
-
-py --version >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=py"
-    exit /b 0
-)
-
-python --version >nul 2>&1
-if not errorlevel 1 (
-    set "PYTHON_CMD=python"
-    exit /b 0
-)
-
+REM 1. Cek folder instalasi langsung (AppData / Program Files)
 for %%P in (
     "%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
-    "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
-    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
     "C:\Program Files\Python310\python.exe"
-    "C:\Program Files\Python311\python.exe"
-    "C:\Program Files\Python312\python.exe"
     "C:\Python310\python.exe"
+    "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    "C:\Program Files\Python311\python.exe"
     "C:\Python311\python.exe"
+    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    "C:\Program Files\Python312\python.exe"
     "C:\Python312\python.exe"
     "%USERPROFILE%\anaconda3\python.exe"
     "%USERPROFILE%\miniconda3\python.exe"
@@ -79,13 +52,52 @@ for %%P in (
     "C:\ProgramData\anaconda3\python.exe"
     "C:\ProgramData\miniconda3\python.exe"
 ) do (
-    if not defined PYTHON_CMD (
+    if not defined PYTHON_EXE (
         if exist %%P (
-            set "PYTHON_CMD=%%~P"
+            set "PYTHON_EXE=%%~P"
+            set "PYTHON_ARGS="
             exit /b 0
         )
     )
 )
+
+REM 2. Cek Python Launcher (py)
+py -3.10 --version >nul 2>&1
+if not errorlevel 1 (
+    set "PYTHON_EXE=py"
+    set "PYTHON_ARGS=-3.10"
+    exit /b 0
+)
+
+py -3.11 --version >nul 2>&1
+if not errorlevel 1 (
+    set "PYTHON_EXE=py"
+    set "PYTHON_ARGS=-3.11"
+    exit /b 0
+)
+
+py -3.12 --version >nul 2>&1
+if not errorlevel 1 (
+    set "PYTHON_EXE=py"
+    set "PYTHON_ARGS=-3.12"
+    exit /b 0
+)
+
+py --version >nul 2>&1
+if not errorlevel 1 (
+    set "PYTHON_EXE=py"
+    set "PYTHON_ARGS="
+    exit /b 0
+)
+
+REM 3. Cek python di PATH
+python --version >nul 2>&1
+if not errorlevel 1 (
+    set "PYTHON_EXE=python"
+    set "PYTHON_ARGS="
+    exit /b 0
+)
+
 exit /b 0
 
 :FIND_CONDA
@@ -114,7 +126,7 @@ if not exist ".venv\Scripts\python.exe" (
     echo Mencari instalasi Python di sistem ...
     call :FIND_PYTHON
 
-    if not defined PYTHON_CMD (
+    if not defined PYTHON_EXE (
         echo.
         echo ======================================================================
         echo [INFORMASI] Python belum terdeteksi di komputer ini.
@@ -147,11 +159,17 @@ if not exist ".venv\Scripts\python.exe" (
         del "%TEMP%\python-3.10.11-amd64.exe" >nul 2>&1
 
         call :FIND_PYTHON
-        if not defined PYTHON_CMD (
-            if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
-            if exist "C:\Program Files\Python310\python.exe" set "PYTHON_CMD=C:\Program Files\Python310\python.exe"
+        if not defined PYTHON_EXE (
+            if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" (
+                set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+                set "PYTHON_ARGS="
+            )
+            if exist "C:\Program Files\Python310\python.exe" (
+                set "PYTHON_EXE=C:\Program Files\Python310\python.exe"
+                set "PYTHON_ARGS="
+            )
         )
-        if not defined PYTHON_CMD (
+        if not defined PYTHON_EXE (
             echo.
             echo [PERINGATAN] Instalasi Python telah selesai.
             echo Silakan tutup jendela ini dan jalankan kembali install_webgis.bat
@@ -163,8 +181,13 @@ if not exist ".venv\Scripts\python.exe" (
     )
 
     echo.
-    echo Membuat virtual environment .venv menggunakan: "!PYTHON_CMD!" ...
-    "!PYTHON_CMD!" -m venv .venv
+    if defined PYTHON_ARGS (
+        echo Membuat virtual environment .venv menggunakan: "!PYTHON_EXE!" !PYTHON_ARGS! ...
+        "!PYTHON_EXE!" !PYTHON_ARGS! -m venv .venv
+    ) else (
+        echo Membuat virtual environment .venv menggunakan: "!PYTHON_EXE!" ...
+        "!PYTHON_EXE!" -m venv .venv
+    )
     if errorlevel 1 (
         echo [ERROR] Gagal membuat virtual environment .venv.
         pause
