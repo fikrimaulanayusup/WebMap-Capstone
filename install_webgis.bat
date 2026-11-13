@@ -145,8 +145,9 @@ if not exist ".venv\Scripts\python.exe" (
         )
 
         echo.
+        set "CLEAN_TEMP=%TEMP:"=%"
         echo Mengunduh installer resmi Python 3.10 ...
-        curl.exe -L -o "%TEMP%\python-3.10.11-amd64.exe" "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe"
+        curl.exe -L -o "!CLEAN_TEMP!\python-3.10.11-amd64.exe" "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe"
         if errorlevel 1 (
             echo [ERROR] Gagal mengunduh installer Python. Periksa koneksi internet Anda.
             pause
@@ -155,8 +156,8 @@ if not exist ".venv\Scripts\python.exe" (
 
         echo Memasang Python 3.10 ke sistem...
         echo (Jendela pemasangan Python akan muncul, mohon tunggu hingga selesai...)
-        "%TEMP%\python-3.10.11-amd64.exe" /passive PrependPath=1 Include_pip=1 SimpleInstall=1
-        del "%TEMP%\python-3.10.11-amd64.exe" >nul 2>&1
+        start /wait "" "!CLEAN_TEMP!\python-3.10.11-amd64.exe" /passive PrependPath=1 Include_pip=1 SimpleInstall=1
+        del "!CLEAN_TEMP!\python-3.10.11-amd64.exe" >nul 2>&1
 
         call :FIND_PYTHON
         if not defined PYTHON_EXE (
@@ -241,8 +242,9 @@ if not defined CONDA_PATH (
     )
 
     echo.
+    set "CLEAN_TEMP=%TEMP:"=%"
     echo Mengunduh installer resmi Miniconda (sekitar 150 MB)...
-    curl.exe -L -o "%TEMP%\miniconda_installer.exe" "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
+    curl.exe -L -o "!CLEAN_TEMP!\miniconda_installer.exe" "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
     if errorlevel 1 (
         echo [ERROR] Gagal mengunduh installer Miniconda. Periksa koneksi internet Anda.
         pause
@@ -251,8 +253,8 @@ if not defined CONDA_PATH (
 
     echo Memasang Miniconda ke %USERPROFILE%\miniconda3 ...
     echo (Mohon tunggu beberapa menit hingga proses pemasangan selesai...)
-    start /wait "" "%TEMP%\miniconda_installer.exe" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\miniconda3
-    del "%TEMP%\miniconda_installer.exe" >nul 2>&1
+    start /wait "" "!CLEAN_TEMP!\miniconda_installer.exe" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\miniconda3
+    del "!CLEAN_TEMP!\miniconda_installer.exe" >nul 2>&1
 
     call :FIND_CONDA
     if not defined CONDA_PATH (
@@ -316,8 +318,9 @@ if not defined CONDA_PATH (
     )
 
     echo.
+    set "CLEAN_TEMP=%TEMP:"=%"
     echo Mengunduh installer resmi Miniconda (sekitar 150 MB)...
-    curl.exe -L -o "%TEMP%\miniconda_installer.exe" "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
+    curl.exe -L -o "!CLEAN_TEMP!\miniconda_installer.exe" "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
     if errorlevel 1 (
         echo [ERROR] Gagal mengunduh installer Miniconda. Periksa koneksi internet Anda.
         pause
@@ -326,8 +329,8 @@ if not defined CONDA_PATH (
 
     echo Memasang Miniconda ke %USERPROFILE%\miniconda3 ...
     echo (Mohon tunggu beberapa menit hingga proses pemasangan selesai...)
-    start /wait "" "%TEMP%\miniconda_installer.exe" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\miniconda3
-    del "%TEMP%\miniconda_installer.exe" >nul 2>&1
+    start /wait "" "!CLEAN_TEMP!\miniconda_installer.exe" /InstallationType=JustMe /RegisterPython=0 /S /D=%USERPROFILE%\miniconda3
+    del "!CLEAN_TEMP!\miniconda_installer.exe" >nul 2>&1
 
     call :FIND_CONDA
     if not defined CONDA_PATH (
