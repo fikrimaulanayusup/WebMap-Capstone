@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./.venv/Scripts/python.exe -m py_compile backend/main.py backend/marinext.py)"
+    ]
+  }
+}
