@@ -7,4 +7,3 @@ morecantile
 numpy
 scipy>=1.11
 shapely>=2
-websockets>=12

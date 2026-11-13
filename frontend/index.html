@@ -6,7 +6,7 @@
   <title>Web-Map Tumpahan Minyak</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css?v=15">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <nav id="nav" aria-label="Menu utama">
@@ -33,17 +33,6 @@
             <path d="M17.5 13.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>
           </svg>
           <span>Deteksi Oil Spill</span>
-          <svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
-        </button>
-      </li>
-      <li>
-        <button type="button" id="menu-ais" class="menu-item" aria-expanded="false" aria-controls="ais-panel">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M2 20a6 6 0 0 0 6 0 6 6 0 0 1 6 0 6 6 0 0 0 6 0"/>
-            <path d="M4 17l1.5-6h13l1.5 6"/>
-            <path d="M12 4v7M9 8h6"/>
-          </svg>
-          <span>Lalu Lintas AIS</span>
           <svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
         </button>
       </li>
@@ -158,20 +147,6 @@
         </div>
         <p id="box-info" class="hint">Klik <strong>Gambar kotak</strong>, lalu tarik di peta. Klik sekali di peta untuk
           menaruh kotak seukuran pilihan.</p>
-        <div class="ais-box-row" id="d-ais-box-row" hidden>
-          <div class="ais-box-header">
-            <label class="switch">
-              <input type="checkbox" id="d-ais-toggle" checked>
-              <span class="track" aria-hidden="true"></span>
-              <span id="d-ais-mode-label">Kapal AIS</span>
-            </label>
-            <span id="d-ais-box-count" class="badge-mini">0 kapal</span>
-          </div>
-          <div class="ais-box-actions">
-            <button type="button" id="d-ais-history-btn" class="secondary" style="font-size:12px; padding:5px 9px;">Cari Kapal pada Tanggal Citra (GFW)</button>
-          </div>
-          <p id="d-ais-hint" class="hint" style="font-size:11.5px; margin:2px 0 0;">Streaming nonaktif: cari kapal historis GFW yang melintas pada tanggal citra di kotak ini.</p>
-        </div>
       </div>
 
       <div class="step">
@@ -277,90 +252,6 @@
     </section>
   </aside>
 
-  <!-- Panel Baru: Lalu Lintas Kapal (AIS) -->
-  <aside id="ais-panel" class="side-panel" hidden aria-label="Lalu lintas kapal AIS">
-    <div class="sensor-bar">
-      <span class="chip">AISStream.io</span>
-      <span id="ais-live-badge" class="ais-badge off">Off</span>
-    </div>
-
-    <!-- Status Sumber Data -->
-    <section class="card">
-      <h2>Sumber Data AIS</h2>
-      <div class="ais-key-info">
-        <span class="dot active" id="ais-key-dot"></span>
-        <span id="ais-key-text">AISStream.io (Backend Aktif)</span>
-      </div>
-      <div class="ais-target-status">
-        <span class="hint">Target area:</span>
-        <strong id="ais-target-label">Tampilan Peta</strong>
-      </div>
-      <p class="hint">
-        Sinyal AIS dipantau secara real-time via WebSocket. Jika kotak pada <strong>Deteksi Oil Spill</strong> digambar, area pelacakan otomatis menyasar kotak tersebut.
-      </p>
-    </section>
-
-    <!-- Kontrol Pelacakan & Layer -->
-    <section class="card">
-      <h2>Kontrol Pelacakan</h2>
-      <label class="switch">
-        <input type="checkbox" id="ais-stream-toggle">
-        <span class="track" aria-hidden="true"></span>
-        <span>Streaming Real-Time</span>
-      </label>
-      <label class="switch">
-        <input type="checkbox" id="ais-show-vessels" checked>
-        <span class="track" aria-hidden="true"></span>
-        <span>Tampilkan Ikon Kapal di Peta</span>
-      </label>
-      <label class="switch">
-        <input type="checkbox" id="ais-show-tracks" checked>
-        <span class="track" aria-hidden="true"></span>
-        <span>Tampilkan Jejak Pelayaran (Track)</span>
-      </label>
-      <label>Filter Jenis Kapal
-        <select id="ais-type-filter">
-          <option value="">Semua jenis kapal</option>
-          <option value="Tanker">Tanker (Minyak/Kimia)</option>
-          <option value="Cargo">Kargo (Cargo)</option>
-          <option value="Passenger">Penumpang (Passenger)</option>
-          <option value="Tug">Tug / Towing</option>
-          <option value="Fishing">Perikanan (Fishing)</option>
-          <option value="Other">Lainnya / Unknown</option>
-        </select>
-      </label>
-      <div class="box-actions">
-        <button type="button" id="ais-fetch-btn" class="secondary">Ambil Kapal di Area Ini</button>
-        <button type="button" id="ais-box-sync-btn" class="secondary" hidden>Fokus Kotak Deteksi</button>
-        <button type="button" id="ais-clear-btn" class="link">Bersihkan data</button>
-      </div>
-
-      <!-- Mode Historis (Global Fishing Watch) saat streaming off -->
-      <div id="ais-historical-section" class="ais-history-card">
-        <h3>Pencarian Historis (GFW)</h3>
-        <div class="row">
-          <label>Dari <input type="date" id="ais-h-start"></label>
-          <label>Sampai <input type="date" id="ais-h-end"></label>
-        </div>
-        <button type="button" id="ais-h-query-btn" class="primary">Cari Kapal pada Tanggal Ini (GFW)</button>
-        <p class="hint" style="font-size:11.5px; margin:0;">
-          Mengambil data kapal masa lampau dari Global Fishing Watch di dalam kotak analisis atau area peta saat ini.
-        </p>
-      </div>
-
-      <p id="ais-status-msg" class="hint">Aktifkan "Streaming Real-Time" atau gunakan "Pencarian Historis GFW" untuk tanggal lampau.</p>
-    </section>
-
-    <!-- Daftar Kapal -->
-    <section class="results">
-      <div class="results-head">
-        <h2>Kapal Terpantau (<span id="ais-count">0</span>)</h2>
-      </div>
-      <input type="search" id="ais-search-query" placeholder="Saring nama kapal atau MMSI…" class="ais-search-input">
-      <div id="ais-vessel-list" class="ais-vessel-list"></div>
-    </section>
-  </aside>
-
   <main>
     <div id="map"></div>
     <div id="loading" hidden>Memuat citra dari AWS…</div>
@@ -373,6 +264,6 @@
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=21"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

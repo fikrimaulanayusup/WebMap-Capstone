@@ -41,7 +41,7 @@ from rio_tiler.errors import TileOutsideBounds  # noqa: E402
 from rio_tiler.io import Reader  # noqa: E402
 from rio_tiler.models import ImageData  # noqa: E402
 
-from . import ais, jobs, marinext, sar_unet  # noqa: E402
+from . import jobs, marinext, sar_unet  # noqa: E402
 from .geo import DetectionError  # noqa: E402
 from .remote_cache import prune_cache  # noqa: E402
 from .sources import Location, locate, open_raster  # noqa: E402
@@ -62,7 +62,6 @@ WEB_MERCATOR = morecantile.tms.get("WebMercatorQuad")
 SCENE_ID_RE = re.compile(r"^S[12][A-Z]_[A-Za-z0-9_]{10,100}$")
 
 app = FastAPI(title="Web-Map Tumpahan Minyak - Sentinel AWS")
-app.include_router(ais.router)
 stac = httpx.Client(base_url=STAC_API, timeout=30)
 
 # (sensor, scene_id) -> {"vv": (bucket, key), ...}; diisi saat pencarian supaya permintaan
